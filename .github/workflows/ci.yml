@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history, so that a secret committed long ago is found.
+          fetch-depth: 0
+          # The repository is mounted into the scanner's container, so the
+          # workflow token is not left in its Git configuration.
+          persist-credentials: false
+      - name: Scan the full history
+        run: make secrets
+
+  docs:
+    name: Markdown lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint the Markdown files
+        run: make docs
