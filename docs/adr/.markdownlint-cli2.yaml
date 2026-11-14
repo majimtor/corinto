@@ -1,0 +1,5 @@
+# Accepted records are not edited (see README.md in this directory). One of
+# them starts a list item with a status code, which Markdown reads as the
+# number of an ordered list, so that one check is off for the records.
+config:
+  MD029: false

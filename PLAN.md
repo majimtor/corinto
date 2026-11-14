@@ -515,6 +515,7 @@ repositories (checked 2026-11-13). The gates:
 | Secret scan over the whole history | A secret in a commit |
 | Code scanning for Go | Known vulnerable patterns |
 | Image build | An image that no longer builds |
+| Markdown lint | A document that does not render as it reads |
 
 The ruleset of `main` (ADR 0017) requires these checks. CI holds no secret:
 publishing the image uses the workflow's own token, and so does the release

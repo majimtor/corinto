@@ -1,0 +1,5 @@
+# Markdown lint configuration, shared by CI and local runs of `make docs`.
+config:
+  # Tables are exempt from the 80-column limit; prose and code are not.
+  MD013:
+    tables: false
