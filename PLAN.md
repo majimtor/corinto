@@ -158,41 +158,18 @@ no hit rate is published; the lag and the memory of the replica are.
 ## 4. Ingestion and delivery semantics
 
 The redirect always answers; when something fails, analytics give way
-(ADR 0005).
+(ADR 0005). The response never waits for the event. The first hop, from
+`redirect` to the inbox table, is at most once, and what it loses is
+counted. From acceptance on, delivery is at least once and each accepted
+event counts exactly once. An event that keeps failing is dead-lettered,
+never dropped in silence. Metrics are eventually consistent, and every
+metrics response says up to which instant data has been processed.
 
-1. The response never waits for the event.
-2. First hop, at most once. Events wait in a bounded in-memory buffer of
-   50,000 and are inserted into an inbox table in batches, every second or
-   every 500 events, ignoring conflicts on the event identifier.
-3. A full buffer drops the new event. Loss is not estimated: it is the
-   responses that owe an event, redirected or inactive, minus the events
-   accepted, two counts that do not share a path.
-4. From acceptance on, at least once. The `worker` process consumes the
-   inbox in batches of 500, in the way ADR 0004 describes, and each
-   accepted event counts exactly once.
-5. An event that fails five times, with waits that grow between attempts and
-   are set in S1, moves to a dead-letter table with its reason. It can be
-   reprocessed and is never dropped silently.
-6. Order between events is not required; aggregates are sums.
-7. Metrics are eventually consistent. Every metrics response says up to
-   which instant data has been processed.
-
-| What fails | What happens | Where it shows |
-| --- | --- | --- |
-| Database down | Redirects continue from the replica; events buffer, then drop and are counted; the API answers `503` | Replica age, lost count |
-| `worker` stopped | Events accumulate as pending; nothing is lost | Pending count, "processed through" |
-| Buffer full | New events are dropped and counted | Lost count |
-| `redirect` crashes | Events in memory are lost and not counted: at most one flush interval while the database accepts them, up to the whole buffer if it was down; on restart it reloads the replica | Declared limit |
-| A batch is retried or an event duplicated | Ignored by event identifier | Nothing to show |
-| An event cannot be processed | Dead-lettered when its attempts run out | Dead-letter count |
-
-The panel shows per day what was served, accepted and lost, and how the
-accepted divide into processed, pending and dead-lettered. At the start of
-S1, before its code, the statements above move to
-`docs/delivery-semantics.md`, which becomes their only source, each with
-the test that checks it: the failure tests of section 12, unit and
-integration tests for the full buffer and the dead-letter path, and none
-for the loss on a crash, which is a declared limit.
+`docs/delivery-semantics.md` is the only source of the statements, their
+parameters, the table of failures and the declared limits, each with the
+test that checks it. The panel shows per day what was served, accepted and
+lost, and how the accepted divide into processed, pending and
+dead-lettered.
 
 ## 5. Metrics and aggregation
 
@@ -398,10 +375,11 @@ recreates everything.
 - **Demo entry**: opens a session on a demo workspace without a secret.
   Personal accounts enter with self-service sign-up (section 22).
 - **Operator**: the `operator` command of the binary, against the
-  database, with five actions: create a workspace, issue a key, revoke a
-  key, block a link and block a workspace. Blocking a workspace revokes its
-  sessions and keys, and its links answer as blocked. There is no administrative
-  HTTP endpoint.
+  database, with six actions: create a workspace, issue a key, revoke a
+  key, block a link, block a workspace and send dead-lettered events back
+  to the inbox (`docs/delivery-semantics.md`). Blocking a workspace revokes
+  its sessions and keys, and its links answer as blocked. There is no
+  administrative HTTP endpoint.
 - **One point of authorization**: the principal is resolved to its
   workspace and scopes, and a resource is loaded by workspace and
   identifier. Another workspace's resource answers `404`; a missing scope
