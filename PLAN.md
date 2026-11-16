@@ -13,8 +13,9 @@ decision record in `docs/adr/`; rules that every change must follow are in
 `docs/engineering-rules.md`.
 
 Status of this document: version 1, 2026-11-14, written before the first
-line of application code. Every fact about a provider or a tool carries the
-date it was checked; every estimate carries its assumptions.
+line of application code and revised when a slice closes, last on
+2026-11-16 for S0. Every fact about a provider or a tool carries the date
+it was checked; every estimate carries its assumptions.
 
 ## 1. Vision and success criterion
 
@@ -702,24 +703,28 @@ counts.
 Estimates are real hours: optimistic, probable, pessimistic. Weeks are
 given for ten hours a week and for five, since the weekly hours are shared
 with Delfos and work alternates by whole slices rather than splitting
-weeks. Assumptions: this is the maintainer's first project in Go, and 30 to
-70 of the hours below are learning; the hours of S2 are an unmeasured
-estimate until the check that opens that slice. S0 is the calibration
-slice: its real hours replace the learning assumption, every later estimate
-is rescaled once in a dated revision of this section, and each slice
-records its real hours when it closes.
+weeks. Each slice records its real hours when it closes.
+
+Revision of 2026-11-16, at the close of S0, the calibration slice. The
+first estimates assumed that this is the maintainer's first project in Go
+and that 30 to 70 of their hours were learning. S0 took about 8 real hours
+against a probable 20. That ratio, 0.4, replaces the learning assumption:
+every later estimate below is the first one multiplied by it, once. It is
+one measurement, taken on the slice with the least design in it, so the
+hours each slice records are what corrects it from here. The hours of S2
+remain an unmeasured estimate until the check that opens that slice.
 
 | Slice | Hours | Weeks at 10 h | Weeks at 5 h |
 | --- | --- | --- | --- |
-| S0 Foundations | 14 / 20 / 30 | 1 / 2 / 3 | 3 / 4 / 6 |
-| S1 Redirect and count | 130 / 186 / 275 | 13 / 19 / 28 | 26 / 37 / 55 |
-| S2 Panel and metrics | 68 / 96 / 145 | 7 / 10 / 15 | 14 / 19 / 29 |
-| S3 Inbound webhooks and launch | 35 / 55 / 85 | 4 / 6 / 9 | 7 / 11 / 17 |
-| **Up to launch** | **247 / 357 / 535** | **25 / 36 / 54** | **49 / 71 / 107** |
-| S4 Outbound webhooks | 45 / 62 / 95 | 5 / 6 / 10 | 9 / 12 / 19 |
-| S5 Approximate unique clicks | 12 / 20 / 35 | 1 / 2 / 4 | 2 / 4 / 7 |
-| **Whole vision** | **304 / 439 / 665** | **30 / 44 / 67** | **61 / 88 / 133** |
-| Public deployment, by trigger | 25 / 40 / 70 | 3 / 4 / 7 | 5 / 8 / 14 |
+| S0 Foundations, closed | 8, against an estimate of 14 / 20 / 30 | 1 | 2 |
+| S1 Redirect and count | 52 / 74 / 110 | 5 / 7 / 11 | 10 / 15 / 22 |
+| S2 Panel and metrics | 27 / 38 / 58 | 3 / 4 / 6 | 5 / 8 / 12 |
+| S3 Inbound webhooks and launch | 14 / 22 / 34 | 1 / 2 / 3 | 3 / 4 / 7 |
+| **Up to launch** | **101 / 142 / 210** | **10 / 14 / 21** | **20 / 28 / 42** |
+| S4 Outbound webhooks | 18 / 25 / 38 | 2 / 3 / 4 | 4 / 5 / 8 |
+| S5 Approximate unique clicks | 5 / 8 / 14 | 1 / 1 / 1 | 1 / 2 / 3 |
+| **Whole vision** | **124 / 175 / 262** | **12 / 18 / 26** | **25 / 35 / 52** |
+| Public deployment, by trigger | 10 / 16 / 28 | 1 / 2 / 3 | 2 / 3 / 6 |
 
 S0 to S5 are the first stretch. The slices by trigger start when their
 trigger fires.
@@ -731,7 +736,8 @@ that answers its health endpoints; the contract skeleton; the trial of
 section 21, with its result written down; the Codespaces start measured.
 Done when a clean clone passes `make verify`, the trial has an outcome, and
 the estimates above have been rescaled with the real hours. If the probable
-doubles, the Codespaces measurement moves to S1.
+doubles, the Codespaces measurement moves to S1. Closed on 2026-11-16 in
+about 8 real hours, with the Codespaces start measured.
 
 **S1 Redirect and count.** `docs/delivery-semantics.md` first. Then the
 link API with keys; `redirect` with its replica, limits and
@@ -902,8 +908,8 @@ that can be checked in a type, a contract, a test, a build or a review.
 
 | Risk | Observable signal | Mitigation |
 | --- | --- | --- |
-| Hours shared with Delfos | A slice exceeds its pessimistic estimate, or neither project closes a slice in a quarter | Alternate by whole slices; record real hours; rescale after S0 |
-| Go is new to the maintainer | S0 lands at its pessimistic end | The review point of ADR 0003 |
+| Hours shared with Delfos | A slice exceeds its pessimistic estimate, or neither project closes a slice in a quarter | Alternate by whole slices; record real hours; the estimates were rescaled after S0 (section 18) |
+| Go is new to the maintainer | S0 closed under its optimistic estimate, so the review point of ADR 0003 did not fire. From here: a slice exceeds its pessimistic estimate | The real hours each slice records, against the rescaled estimates of section 18 |
 | Young OpenAPI 3.1 tooling in Go | The validation library, below version 1, changes its interface in an update, or stops being maintained | Its version is pinned and an update that breaks it fails the build; the other library of section 21 passed the same trial; ADR 0011 says when the choice is reopened |
 | A server-rendered panel in a language new to the maintainer | The check of ADR 0014 fails | Its fallback |
 | Infrastructure added for its own sake | A component enters without a measurement next to it | The admission rule of section 1 |
