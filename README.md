@@ -50,13 +50,13 @@ containing a secret is blocked before it exists:
 git config core.hooksPath .githooks
 ```
 
-`make verify` runs every check CI runs. It needs Go and Docker: the `go`
-command downloads the toolchain that `go.mod` names and builds the
-analysers at the versions pinned in the `Makefile`, and the other tools run
-from images pinned there too. `make test` runs the unit tests alone and
-`make lint` the compilation and the static analysers. Markdown is checked
-with `markdownlint-cli2`; the configuration lives in
-`.markdownlint-cli2.yaml`.
+`make verify` runs every check CI runs, except code scanning, which runs on
+GitHub. It needs Go and Docker: the `go` command downloads the toolchain
+that `go.mod` names and builds the analysers at the versions pinned in the
+`Makefile`, and the other tools run from images pinned there too.
+`make test` runs the unit tests alone and `make lint` the compilation and
+the static analysers. Markdown is checked with `markdownlint-cli2`; the
+configuration lives in `.markdownlint-cli2.yaml`.
 
 ## Licence
 
