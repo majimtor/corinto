@@ -45,7 +45,8 @@ deploy/.env:
 test:
 	go test -race -shuffle=on -count=1 ./...
 
-# Runs every check CI runs. A clean clone must pass it.
+# Runs every check CI runs, except code scanning, which runs on GitHub. A
+# clean clone must pass it.
 verify: lint test secrets docs image
 
 # Compiles everything and runs the static analysers.

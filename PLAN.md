@@ -476,8 +476,8 @@ In the first minute a reader sees `cmd/` and `internal/`, which anyone who
 knows Go recognises, five directories with obvious names, and a README with
 the command that starts everything. The `Makefile` is the single entry
 point: `make up` starts the system, `make test` runs the unit tests,
-`make verify` runs every check CI runs, and `make bench` reproduces the
-published figures.
+`make verify` runs every check CI runs except code scanning, which runs on
+GitHub, and `make bench` reproduces the published figures.
 
 Flow and history are decided in ADR 0017 and the licence in ADR 0018.
 
