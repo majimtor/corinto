@@ -463,6 +463,7 @@ e2e/              browser tests, the only directory with Node tooling
 docs/             adr/, engineering-rules.md, delivery-semantics.md,
                   benchmarks.md, accessibility.md, privacy.md, known-issues.md
 .github/          workflows, dependabot.yml, pull request template
+.devcontainer/    the environment the Codespaces link opens
 ```
 
 The listing shows the shape, not every file. Names are in English, carry

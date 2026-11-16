@@ -40,6 +40,11 @@ in `deploy/.env`, which is never versioned; `.env.example` lists the
 variables the binary reads. `make down` stops the stack and deletes its
 data.
 
+Without installing anything,
+[a codespace](https://codespaces.new/majimtor/corinto) runs the same command
+when it opens. Its hours count against the free allowance of whoever opens
+it.
+
 ## Working on the repository
 
 After cloning, point Git at the versioned hooks and install
