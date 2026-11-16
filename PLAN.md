@@ -340,8 +340,8 @@ health. S2 adds none: sessions and keys are handled in the panel's pages.
 S3: sources, reception and receipts. S4: destinations, deliveries and
 retry.
 
-Whether the contract stays on OpenAPI 3.1 is decided by the trial of
-section 21.
+The contract stays on OpenAPI 3.1, and both validations use
+`getkin/kin-openapi`. Section 21 records the trial that decided it.
 
 ## 8. Data and migrations
 
@@ -355,8 +355,8 @@ package:
 - `webhook`: `webhook_sources`, `webhook_receipts`, `conversion_daily`;
   from S4, `webhook_destinations` and `webhook_deliveries`.
 
-Migrations are SQL files applied by `corinto migrate`, under the
-engineering rules on schema and migrations.
+Migrations are SQL files applied by `corinto migrate`, which runs them with
+`goose` as a library, under the engineering rules on schema and migrations.
 
 **Seed.** One deterministic seed for local runs, Codespaces and end-to-end
 tests: a fixed generator seed for the data and dates relative to the day it
@@ -840,11 +840,16 @@ Each is the maintainer's to take, at the moment named.
 
 | Decision | Options | Recommended | When |
 | --- | --- | --- | --- |
-| Library that validates against the OpenAPI document in Go. A trial of at most six hours: a 3.1 document with a `webhooks` section, requests validated by the server and responses by the tests | `getkin/kin-openapi`; `pb33f/libopenapi-validator`, both below version 1; or fall back to OpenAPI 3.0, the version the sister project uses | Whichever does both validations within the six hours; 3.0 if neither | S0 |
-| Migration runner | `goose` as a library; a runner of the project's own | `goose` | S0 |
 | Event types and retry values of outbound webhooks | Types: conversion reported; link expired, disabled or blocked; a threshold reached. Values: attempts, waits and the thresholds of the circuit breaker | Start with the first two types; values set with the slice | Start of S4 |
 | Method for approximate unique clicks | A daily-salted identifier kept only in memory; not offering the metric | Decided by the privacy analysis | Start of S5 |
 | Form of the public deployment | An edge front in front of an origin that may sleep; a small paid virtual machine | Decided with the limits of ADR 0001 rechecked | When a trigger fires |
+
+Closed in S0, on 2026-11-14:
+
+| Decision | Options | Outcome |
+| --- | --- | --- |
+| Library that validates against the OpenAPI document in Go. A trial of at most six hours: a 3.1 document with a `webhooks` section, requests validated by the server and responses by the tests | `getkin/kin-openapi`; `pb33f/libopenapi-validator`, both below version 1; or fall back to OpenAPI 3.0, the version the sister project uses | `getkin/kin-openapi`, on OpenAPI 3.1; the fallback was not needed. The trial document had a `webhooks` section, an external reference to a JSON Schema 2020-12 file, type lists, `const` and security requirements with scopes, and was loaded from embedded files; 23 requests and 13 responses had a known verdict. Both libraries loaded it and validated requests and responses. `getkin/kin-openapi` 0.153.0 gave the expected verdict in 35 of the 36 cases: it does not assert `format: uri`. `pb33f/libopenapi-validator` 0.16.3 gave it in 34 by default and in all 36 with format assertions switched on. `oasdiff` 1.37.0 read the same document and reported the breaking changes seeded in it. The first was chosen because it adds 6 modules to the binary where the other adds 13, its JSON Schema engine is an independent library where the other's is a fork of that library, and `oasdiff` reads documents with its parser. Against it: it has to be given the route of each request, and it was the slower of the two in the one pass that was timed. The limit of the trial: its document had three paths, and the real contract will use more constructs |
+| Migration runner | `goose` as a library; a runner of the project's own | `goose` as a library, which adds four modules to the binary. The `migrate` command and the dependency arrive in S1 with the first table; S0 has no migration to apply |
 
 ## 22. Omissions with triggers
 
@@ -896,7 +901,7 @@ that can be checked in a type, a contract, a test, a build or a review.
 | --- | --- | --- |
 | Hours shared with Delfos | A slice exceeds its pessimistic estimate, or neither project closes a slice in a quarter | Alternate by whole slices; record real hours; rescale after S0 |
 | Go is new to the maintainer | S0 lands at its pessimistic end | The review point of ADR 0003 |
-| Young OpenAPI 3.1 tooling in Go | The S0 trial fails | The fallback of section 21 |
+| Young OpenAPI 3.1 tooling in Go | The validation library, below version 1, changes its interface in an update, or stops being maintained | Its version is pinned and an update that breaks it fails the build; the other library of section 21 passed the same trial; ADR 0011 says when the choice is reopened |
 | A server-rendered panel in a language new to the maintainer | The check of ADR 0014 fails | Its fallback |
 | Infrastructure added for its own sake | A component enters without a measurement next to it | The admission rule of section 1 |
 | Evidence that goes stale | Screenshots or figures that no longer match the code | Screenshots come from the end-to-end run; figures are redone as ADR 0020 says |

@@ -1,0 +1,74 @@
+openapi: 3.1.1
+info:
+  title: Corinto management API
+  summary: Links, their metrics and the webhooks around them.
+  description: |
+    The contract of the management API. It is written before the code that
+    serves it, and the server is checked against it.
+
+    Every path starts with the major version. Within a major version changes
+    are additive: clients must tolerate fields and enumeration values they do
+    not know.
+
+    Errors are Problem Details (RFC 9457) with a stable `code`. Text in an
+    error is for developers and is not translated; clients translate from
+    the code.
+  version: 0.0.0
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: /
+    description: The host that serves the API.
+# The skeleton has no operations yet. Each slice adds its own.
+paths: {}
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: >-
+        An API key of a workspace, in the `Authorization` header. Each
+        operation names the scope it requires.
+  responses:
+    Problem:
+      description: An error.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        code:
+          type: string
+          description: >-
+            Stable identifier of the error. It becomes an enumeration with
+            the first operations.
+        errors:
+          type: array
+          description: One entry per field of the request that was rejected.
+          items:
+            $ref: "#/components/schemas/FieldError"
+    FieldError:
+      type: object
+      required: [field, code]
+      properties:
+        field:
+          type: string
+          description: JSON Pointer to the field, relative to the body.
+        code:
+          type: string
