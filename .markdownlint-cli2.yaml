@@ -3,3 +3,6 @@ config:
   # Tables are exempt from the 80-column limit; prose and code are not.
   MD013:
     tables: false
+ignores:
+  # Pull request templates start at the second heading level by convention.
+  - .github/pull_request_template.md
