@@ -454,7 +454,7 @@ go.mod  go.sum  Makefile  README.md  PLAN.md  LICENSE  CHANGELOG.md  SECURITY.md
 cmd/corinto/      the binary: redirect, api, worker, migrate, seed, operator
 internal/         one package per responsibility
   link/  resolve/  redirect/  classify/  ingest/  rollup/
-  webhook/  auth/  api/  panel/  postgres/  seed/
+  webhook/  auth/  api/  panel/  postgres/  seed/  health/
 contract/         openapi.yaml, schemas/webhooks/, redirect.md, CHANGELOG.md,
                   embed.go
 deploy/           compose.yaml and the Dockerfile
@@ -724,7 +724,7 @@ trigger fires.
 **S0 Foundations.** Licence, a first README, this plan, the records and the
 rules; the toolchain pinned; CI with build, static analysis, unit tests,
 secret scan and code scanning; `make up` starting PostgreSQL and a server
-that answers its health endpoint; the contract skeleton; the trial of
+that answers its health endpoints; the contract skeleton; the trial of
 section 21, with its result written down; the Codespaces start measured.
 Done when a clean clone passes `make verify`, the trial has an outcome, and
 the estimates above have been rescaled with the real hours. If the probable

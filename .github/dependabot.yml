@@ -1,6 +1,6 @@
 # Grouped weekly updates, one pull request per ecosystem. Minor and patch
 # versions travel together; a major version gets a pull request of its own.
-# The Go, Docker and npm entries are added together with their manifests.
+# The Docker and npm entries are added together with their manifests.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -9,6 +9,18 @@ updates:
       interval: weekly
     groups:
       actions:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go:
         patterns:
           - "*"
         update-types:
