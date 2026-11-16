@@ -1,0 +1,22 @@
+// The environment that the Codespaces link of the README opens. It runs the
+// same command as a local run, with nothing to install.
+{
+  "name": "Corinto",
+
+  // No image is named on purpose: Codespaces then uses its default image,
+  // which brings Docker. PLAN.md section 20 records that dependency.
+
+  // Runs on every start of the codespace, the first one and each resume, so
+  // that the stack is up whenever the editor is.
+  "postStartCommand": "make up",
+
+  // The port where the api process answers /livez and /readyz.
+  "forwardPorts": [8081],
+  "portsAttributes": {
+    "8081": {
+      "label": "Health endpoints",
+      // Listed in the Ports panel, without a notification on every start.
+      "onAutoForward": "silent"
+    }
+  }
+}
