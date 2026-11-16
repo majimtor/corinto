@@ -10,7 +10,35 @@ MARKDOWNLINT_IMAGE := davidanson/markdownlint-cli2:v0.24.0@sha256:70ead7c0352d22
 STATICCHECK := go run honnef.co/go/tools/cmd/staticcheck@v0.8.2
 GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 
-.PHONY: test verify lint secrets docs
+# The compose project is named in deploy/compose.yaml. `down` goes by that
+# name, so that it works even when deploy/.env is gone.
+COMPOSE := docker compose --file deploy/compose.yaml
+COMPOSE_PROJECT := corinto
+IMAGE := ghcr.io/majimtor/corinto
+HEALTH_URL := http://127.0.0.1:8081
+
+.PHONY: up down test verify lint secrets docs image
+
+# Starts the whole system on this machine and waits until it reports ready.
+up: deploy/.env
+	$(COMPOSE) up --build --detach --wait
+	@curl --silent --show-error --fail --output /dev/null \
+		--retry 30 --retry-delay 1 --retry-all-errors $(HEALTH_URL)/readyz
+	@echo "corinto is up; health endpoints on $(HEALTH_URL)"
+
+# Stops the system and deletes its data. The stack is disposable: the next
+# `make up` starts from nothing.
+down:
+	docker compose --project-name $(COMPOSE_PROJECT) down --volumes
+
+# The database password of the local stack, generated once per clone so that
+# no secret is ever versioned. A volume initialised with an earlier password
+# is dropped with it, because PostgreSQL would keep the old one.
+deploy/.env:
+	@docker compose --project-name $(COMPOSE_PROJECT) down --volumes >/dev/null 2>&1 || true
+	@umask 077 && printf 'POSTGRES_PASSWORD=%s\n' \
+		"$$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')" > $@
+	@echo "generated $@ with a new database password"
 
 # Runs the unit tests with the race detector, in random order and without the
 # test cache, so that a pass means the tests ran.
@@ -18,7 +46,7 @@ test:
 	go test -race -shuffle=on -count=1 ./...
 
 # Runs every check CI runs. A clean clone must pass it.
-verify: lint test secrets docs
+verify: lint test secrets docs image
 
 # Compiles everything and runs the static analysers.
 lint:
@@ -39,3 +67,11 @@ secrets:
 # Lints every Markdown file with the configuration in .markdownlint-cli2.yaml.
 docs:
 	docker run --rm --volume "$(CURDIR):/workdir:ro" $(MARKDOWNLINT_IMAGE) "**/*.md"
+
+# Builds the container image. The Go version of the build stage must be the
+# one go.mod names: a mismatch fails here instead of surfacing later.
+image:
+	@test "$$(sed -n 's/^go //p' go.mod)" = \
+		"$$(sed -n 's/^FROM .*golang:\([0-9.]*\)-.*/\1/p' deploy/Dockerfile)" || \
+		{ echo "go.mod and deploy/Dockerfile name different Go versions" >&2; exit 1; }
+	docker build --file deploy/Dockerfile --tag $(IMAGE):dev .

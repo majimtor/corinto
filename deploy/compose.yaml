@@ -1,0 +1,37 @@
+# The whole system on one machine. Start it with `make up`, which first
+# generates the database password in deploy/.env; nothing in this file is a
+# secret. Ports are published on the loopback interface only: the local run is
+# not a deployment.
+name: corinto
+
+services:
+  db:
+    image: postgres:18.7@sha256:9f4fd4aa918f52ae3d6f3b687f1de90d8f867cd4d520021545a9a50c120eae3b
+    environment:
+      POSTGRES_DB: corinto
+      POSTGRES_USER: corinto
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run make up, which generates deploy/.env}
+    volumes:
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username corinto --dbname corinto"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: ["api"]
+    environment:
+      CORINTO_DATABASE_URL: postgres://corinto:${POSTGRES_PASSWORD}@db:5432/corinto
+      CORINTO_HEALTH_ADDR: ":8081"
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db-data:

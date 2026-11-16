@@ -12,8 +12,8 @@ for what they measure, and signed webhooks in both directions.
 
 In development. The plan and the architecture decisions are written, and
 the foundations are being laid: so far, one binary whose `api` command
-answers its health endpoints. This section is replaced by the command that
-starts the system when the first slice ships.
+answers its health endpoints, and the local stack that runs it next to its
+database. This section goes away when the first slice ships.
 
 ## Where to look
 
@@ -24,6 +24,21 @@ starts the system when the first slice ships.
   reverse, each with its alternatives and the condition that reopens it.
 - [docs/engineering-rules.md](docs/engineering-rules.md): the rules every
   change in this repository follows.
+
+## Run it
+
+One command starts PostgreSQL 18 and the `api` process, which so far only
+answers its health endpoints, on port 8081:
+
+```sh
+make up
+```
+
+Then `http://127.0.0.1:8081/readyz` answers `ready`. The command needs
+Docker, `make` and `curl`. It generates the database password of the stack
+in `deploy/.env`, which is never versioned; `.env.example` lists the
+variables the binary reads. `make down` stops the stack and deletes its
+data.
 
 ## Working on the repository
 
