@@ -535,12 +535,14 @@ account anywhere. There is no second mode with other components.
 **In one click.** A Codespaces link opens the repository in a browser
 environment that already has Docker and runs the same command, with the
 session cookie in its HTTPS form (section 9), since the browser reaches the
-panel over HTTPS. With a stand-in stack (PostgreSQL 18 and a small Go
-server built from source) on the default two-core machine, it took about
-100 seconds from the click to a system answering requests: 25 seconds to
-create the environment and 73.5 to bring the stack up (one run,
-2026-11-13). S0 measures it again with the repository itself; above three
-minutes, the README names the local run first. The free allowance is
+panel over HTTPS. With the repository itself on the default two-core
+machine, it took 164 seconds from the start of the environment to the stack
+reporting ready: 63 to create the environment and 101 for `make up`, which
+downloads PostgreSQL and builds the image from source (one run, 2026-11-16,
+with the stack of S0: the database and the `api` process). Above three
+minutes, the README names the local run first. This is 16 seconds under,
+with the smallest stack the project will have, so S1 measures it again
+before the link takes the first place in the README. The free allowance is
 charged to whoever opens the environment. The forwarded port is a proxy
 this project does not configure, and how it treats request headers is not
 documented, so S2 checks that the demo entry works through it.
