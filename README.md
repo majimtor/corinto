@@ -10,8 +10,9 @@ for what they measure, and signed webhooks in both directions.
 
 ## Status
 
-In development. The plan and the architecture decisions are written; there
-is no application code yet. This section is replaced by the command that
+In development. The plan and the architecture decisions are written, and
+the foundations are being laid: so far, one binary whose `api` command
+answers its health endpoints. This section is replaced by the command that
 starts the system when the first slice ships.
 
 ## Where to look
@@ -34,8 +35,11 @@ containing a secret is blocked before it exists:
 git config core.hooksPath .githooks
 ```
 
-`make verify` runs every check CI runs. It needs Docker and nothing else:
-the tools run from images pinned in the `Makefile`. Markdown is checked
+`make verify` runs every check CI runs. It needs Go and Docker: the `go`
+command downloads the toolchain that `go.mod` names and builds the
+analysers at the versions pinned in the `Makefile`, and the other tools run
+from images pinned there too. `make test` runs the unit tests alone and
+`make lint` the compilation and the static analysers. Markdown is checked
 with `markdownlint-cli2`; the configuration lives in
 `.markdownlint-cli2.yaml`.
 

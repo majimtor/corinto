@@ -1,0 +1,33 @@
+# golangci-lint configuration, format version 2. `make lint` runs it at the
+# version pinned in the Makefile.
+version: "2"
+
+linters:
+  # The standard set (errcheck, govet, ineffassign, staticcheck, unused) plus
+  # the linters below, each named for the failure it catches here.
+  default: standard
+  enable:
+    - bodyclose # a response body left open leaks its connection
+    - contextcheck # a call that drops the caller's context cannot be cancelled
+    - errorlint # errors compared with == stop matching once they are wrapped
+    - gocritic # mistakes that vet does not look for, such as a defer skipped by os.Exit
+    - gosec # servers without timeouts, weak randomness, unbounded reads
+    - misspell # typos in comments and messages a reader sees
+    - noctx # a request or a listener that no context can cancel
+    - nolintlint # a suppression without the linter it silences or its reason
+    - revive # exported names without a comment that says what they are
+    - unconvert # a conversion that changes nothing hides the one that matters
+    - unparam # a parameter no caller varies is a constant in disguise
+  settings:
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/majimtor/corinto
