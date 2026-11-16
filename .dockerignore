@@ -1,0 +1,7 @@
+# Only what the build reads enters the build context. Everything else,
+# source-control metadata included, stays out of it and out of the image.
+*
+!go.mod
+!go.sum
+!cmd
+!internal
