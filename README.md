@@ -24,6 +24,9 @@ database. This section goes away when the first slice ships.
   reverse, each with its alternatives and the condition that reopens it.
 - [docs/engineering-rules.md](docs/engineering-rules.md): the rules every
   change in this repository follows.
+- [docs/delivery-semantics.md](docs/delivery-semantics.md): what happens to
+  an access event between the response and the count, what gives way when
+  a part fails, and the test that checks each statement.
 
 ## Run it
 
