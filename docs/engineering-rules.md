@@ -110,6 +110,13 @@ code with the reason, and the rule is revisited.
 - Automated updates are grouped per ecosystem. Patch and minor versions are
   merged when checks pass. Major versions are updated by hand, one at a
   time, with the migration notes read first.
+- A pull request of the dependency bot is merged by the maintainer, never
+  automatically, with its title as the subject and one line as the body.
+  The bot's own description, with its release notes and trailers, stays in
+  the pull request. One that falls behind `main` is rebased by the bot on
+  request, not updated by hand, so that its branch keeps one author. One
+  that changes what a published figure depends on is merged with the
+  figure redone (ADR 0020).
 - A critical vulnerability in a dependency is fixed within seven days while
   the project is active. When the project is paused the README says so, and
   no time frame runs.
