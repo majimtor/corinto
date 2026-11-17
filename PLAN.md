@@ -433,7 +433,7 @@ go.mod  go.sum  Makefile  README.md  PLAN.md  LICENSE  CHANGELOG.md  SECURITY.md
 cmd/corinto/      the binary: redirect, api, worker, migrate, seed, operator
 internal/         one package per responsibility
   link/  resolve/  redirect/  classify/  ingest/  rollup/
-  webhook/  auth/  api/  panel/  postgres/  seed/  health/
+  webhook/  auth/  api/  panel/  postgres/  seed/  health/  limits/
 contract/         openapi.yaml, schemas/webhooks/, redirect.md, CHANGELOG.md,
                   embed.go
 deploy/           compose.yaml and the Dockerfile
