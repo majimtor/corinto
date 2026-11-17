@@ -32,7 +32,7 @@ var (
 	ErrInvalidKey = errors.New("the key is not valid")
 	// ErrNotFound covers a key that does not exist, one that is already
 	// revoked and one of another workspace.
-	ErrNotFound      = errors.New("the workspace has no such key")
+	ErrNotFound      = errors.New("there is no such key in force")
 	ErrName          = errors.New("the name of a key has between 1 and 100 printable characters")
 	ErrExpiry        = errors.New("the expiry of a key is later than the moment it is issued")
 	ErrQuotaExceeded = errors.New("the workspace has reached its quota of keys")
@@ -74,6 +74,8 @@ func NewKeys(pool *pgxpool.Pool, random io.Reader) *Keys {
 // again. A workspace that does not exist or is blocked gives the errors of
 // link.LockWorkspace.
 func (k *Keys) Issue(ctx context.Context, workspaceID string, draft Draft) (Key, string, error) {
+	// The name of a workspace has the same rule, in the package of the
+	// links: two rules that happen to agree, not one to share.
 	if !utf8.ValidString(draft.Name) || draft.Name == "" || utf8.RuneCountInString(draft.Name) > maxNameLength ||
 		strings.ContainsFunc(draft.Name, func(r rune) bool { return !unicode.IsPrint(r) }) {
 		return Key{}, "", ErrName
@@ -212,6 +214,35 @@ func (k *Keys) Revoke(ctx context.Context, workspaceID, id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// RevokeAnywhere ends a key whatever its workspace and returns it, so that
+// whoever revoked it sees what it was. It is the operator's revocation: a
+// principal of a workspace goes through Revoke.
+func (k *Keys) RevokeAnywhere(ctx context.Context, id string) (Key, error) {
+	key, ok := parseID(id)
+	if !ok {
+		return Key{}, ErrNotFound
+	}
+	var (
+		revoked Key
+		scopes  []string
+	)
+	err := k.pool.QueryRow(ctx,
+		`UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL
+		 RETURNING id, workspace_id, name, scopes, expires_at, created_at`, key,
+	).Scan(&revoked.ID, &revoked.WorkspaceID, &revoked.Name, &scopes, &revoked.ExpiresAt, &revoked.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Key{}, ErrNotFound
+	}
+	if err != nil {
+		return Key{}, fmt.Errorf("revoke the key: %w", err)
+	}
+	revoked.Scopes = make([]Scope, len(scopes))
+	for i, scope := range scopes {
+		revoked.Scopes[i] = Scope(scope)
+	}
+	return revoked, nil
 }
 
 // parseID reads an identifier of the database. One that is not well formed

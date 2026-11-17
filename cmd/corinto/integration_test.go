@@ -35,7 +35,7 @@ func TestMigrateThenTheAPIStartsAndIsReady(t *testing.T) {
 	env := environmentFor(postgrestest.NewDatabase(t))
 
 	var first bytes.Buffer
-	if code := run(t.Context(), []string{"migrate"}, env, &first); code != exitOK {
+	if code := run(t.Context(), []string{"migrate"}, env, io.Discard, &first); code != exitOK {
 		t.Fatalf("migrate exit code = %d, want %d; log: %s", code, exitOK, first.String())
 	}
 	if !strings.Contains(first.String(), "migration applied") {
@@ -44,7 +44,7 @@ func TestMigrateThenTheAPIStartsAndIsReady(t *testing.T) {
 
 	// Running it again changes nothing and is not an error.
 	var second bytes.Buffer
-	if code := run(t.Context(), []string{"migrate"}, env, &second); code != exitOK {
+	if code := run(t.Context(), []string{"migrate"}, env, io.Discard, &second); code != exitOK {
 		t.Fatalf("second migrate exit code = %d, want %d; log: %s", code, exitOK, second.String())
 	}
 	if strings.Contains(second.String(), "migration applied") {
@@ -55,7 +55,7 @@ func TestMigrateThenTheAPIStartsAndIsReady(t *testing.T) {
 	defer cancel()
 	stderr := &lockedBuffer{}
 	exited := make(chan int, 1)
-	go func() { exited <- run(ctx, []string{"api"}, env, stderr) }()
+	go func() { exited <- run(ctx, []string{"api"}, env, io.Discard, stderr) }()
 
 	addr := healthAddr(t, stderr)
 	if got := status(t, "http://"+addr+"/livez"); got != http.StatusOK {
@@ -85,7 +85,7 @@ func TestTheAPIRefusesADatabaseThatWasNotMigrated(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), refusal)
 	defer cancel()
 	var stderr bytes.Buffer
-	code := run(ctx, []string{"api"}, environmentFor(postgrestest.NewDatabase(t)), &stderr)
+	code := run(ctx, []string{"api"}, environmentFor(postgrestest.NewDatabase(t)), io.Discard, &stderr)
 	if code != exitFailure {
 		t.Errorf("exit code = %d, want %d", code, exitFailure)
 	}
@@ -108,7 +108,7 @@ func TestTheAPIRefusesADatabaseAheadOfTheBinary(t *testing.T) {
 	databaseURL := postgrestest.NewDatabase(t)
 	env := environmentFor(databaseURL)
 	var log bytes.Buffer
-	if code := run(t.Context(), []string{"migrate"}, env, &log); code != exitOK {
+	if code := run(t.Context(), []string{"migrate"}, env, io.Discard, &log); code != exitOK {
 		t.Fatalf("migrate exit code = %d; log: %s", code, log.String())
 	}
 
@@ -126,7 +126,7 @@ func TestTheAPIRefusesADatabaseAheadOfTheBinary(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), refusal)
 	defer cancel()
 	var stderr bytes.Buffer
-	if code := run(ctx, []string{"api"}, env, &stderr); code != exitFailure {
+	if code := run(ctx, []string{"api"}, env, io.Discard, &stderr); code != exitFailure {
 		t.Errorf("exit code = %d, want %d", code, exitFailure)
 	}
 	if !strings.Contains(stderr.String(), "the database is at version 99") {

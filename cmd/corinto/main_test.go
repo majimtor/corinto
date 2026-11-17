@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 )
@@ -24,7 +25,7 @@ func TestRunRejectsWrongUsage(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			if code := run(t.Context(), c.args, environmentOf(nil), &stderr); code != exitUsage {
+			if code := run(t.Context(), c.args, environmentOf(nil), io.Discard, &stderr); code != exitUsage {
 				t.Errorf("exit code = %d, want %d", code, exitUsage)
 			}
 			if !strings.HasPrefix(stderr.String(), "usage: corinto") {
@@ -36,7 +37,7 @@ func TestRunRejectsWrongUsage(t *testing.T) {
 
 func TestAPINamesEveryMissingVariable(t *testing.T) {
 	var stderr bytes.Buffer
-	if code := run(t.Context(), []string{"api"}, environmentOf(nil), &stderr); code != exitFailure {
+	if code := run(t.Context(), []string{"api"}, environmentOf(nil), io.Discard, &stderr); code != exitFailure {
 		t.Errorf("exit code = %d, want %d", code, exitFailure)
 	}
 	for _, name := range []string{"CORINTO_DATABASE_URL", "CORINTO_HEALTH_ADDR"} {
@@ -55,7 +56,7 @@ func TestAPIKeepsThePasswordOutOfTheLog(t *testing.T) {
 		"CORINTO_HEALTH_ADDR":  "127.0.0.1:0",
 	}
 	var stderr bytes.Buffer
-	if code := run(t.Context(), []string{"api"}, environmentOf(values), &stderr); code != exitFailure {
+	if code := run(t.Context(), []string{"api"}, environmentOf(values), io.Discard, &stderr); code != exitFailure {
 		t.Errorf("exit code = %d, want %d", code, exitFailure)
 	}
 	if strings.Contains(stderr.String(), sentinel) {
@@ -73,7 +74,7 @@ func TestAPIRefusesToStartWithoutTheDatabase(t *testing.T) {
 		"CORINTO_HEALTH_ADDR":  "127.0.0.1:0",
 	}
 	var stderr bytes.Buffer
-	if code := run(t.Context(), []string{"api"}, environmentOf(values), &stderr); code != exitFailure {
+	if code := run(t.Context(), []string{"api"}, environmentOf(values), io.Discard, &stderr); code != exitFailure {
 		t.Errorf("exit code = %d, want %d", code, exitFailure)
 	}
 	if !strings.Contains(stderr.String(), "schema version") {
@@ -89,7 +90,7 @@ func TestAPIRefusesToStartWithoutTheDatabase(t *testing.T) {
 
 func TestMigrateNamesItsMissingVariable(t *testing.T) {
 	var stderr bytes.Buffer
-	if code := run(t.Context(), []string{"migrate"}, environmentOf(nil), &stderr); code != exitFailure {
+	if code := run(t.Context(), []string{"migrate"}, environmentOf(nil), io.Discard, &stderr); code != exitFailure {
 		t.Errorf("exit code = %d, want %d", code, exitFailure)
 	}
 	if !strings.Contains(stderr.String(), "CORINTO_DATABASE_URL") {
