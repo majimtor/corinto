@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"path"
 	"runtime/debug"
 	"slices"
@@ -28,9 +29,20 @@ import (
 // matches.
 const unmatched = "/"
 
+// Settings is what the API takes from the process that runs it.
+type Settings struct {
+	Logger *slog.Logger
+	// Keys resolves the credential of a request.
+	Keys Authenticator
+	// TrustedProxies are the proxies whose forwarding header is believed
+	// when the address of a client is asked for. Empty trusts none.
+	TrustedProxies []netip.Prefix
+}
+
 // New returns the handler of the API: the operations of the contract, each
-// behind the validation of its requests.
-func New(ctx context.Context, logger *slog.Logger) (http.Handler, error) {
+// behind the key it asks for and the validation of its requests. What it
+// starts stops when ctx is done.
+func New(ctx context.Context, settings Settings) (http.Handler, error) {
 	document, err := contract.Load(ctx)
 	if err != nil {
 		return nil, err
@@ -39,14 +51,23 @@ func New(ctx context.Context, logger *slog.Logger) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read the contract: %w", err)
 	}
-	return newHandler(document, operations(written), logger)
+	return newHandler(ctx, document, operations(written), settings, time.Now)
 }
 
 // newHandler routes the operations of a document to what serves them. The
 // two must name the same operations: an operation of the contract that
 // nothing serves and a handler the contract does not know both stop the
-// start, so the contract and the server cannot drift apart unnoticed.
-func newHandler(document *openapi3.T, serving map[string]http.Handler, logger *slog.Logger) (http.Handler, error) {
+// start, so the contract and the server cannot drift apart unnoticed. So
+// does an operation that does not say whether it needs a key.
+func newHandler(
+	ctx context.Context, document *openapi3.T, serving map[string]http.Handler,
+	settings Settings, now func() time.Time,
+) (http.Handler, error) {
+	logger := settings.Logger
+	keys, err := newGate(ctx, settings.Keys, settings.TrustedProxies, logger, now)
+	if err != nil {
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	routed := make(map[string]bool)
 	var mismatches []string
@@ -63,10 +84,20 @@ func newHandler(document *openapi3.T, serving map[string]http.Handler, logger *s
 				mismatches = append(mismatches, fmt.Sprintf("nothing serves the operation %q of the contract", id))
 			default:
 				routed[id] = true
-				validated := validate(&routers.Route{
+				asked, err := requirementOf(operation)
+				if err != nil {
+					mismatches = append(mismatches, fmt.Sprintf("the operation %q %v", id, err))
+					continue
+				}
+				// The key comes first: a request without one learns
+				// nothing about what the operation takes.
+				guarded := validate(&routers.Route{
 					Spec: document, Path: route, PathItem: item, Method: method, Operation: operation,
 				}, handler)
-				if err := register(mux, method+" "+route, validated); err != nil {
+				if asked.key {
+					guarded = keys.guard(asked, guarded)
+				}
+				if err := register(mux, method+" "+route, guarded); err != nil {
 					mismatches = append(mismatches, err.Error())
 				}
 			}
@@ -217,16 +248,39 @@ func (r *recorder) Write(body []byte) (int, error) {
 // Unwrap gives http.ResponseController the writer underneath.
 func (r *recorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
+// note is what the layers of a request leave for its log line.
+type note struct {
+	// id is the identifier of the request.
+	id string
+	// key is the identifier of the key the request was made with, once the
+	// key is known to be valid. Never the key itself.
+	key string
+}
+
+type noteKey struct{}
+
+// noteOf returns the note of a request. Every request has one.
+func noteOf(ctx context.Context) *note {
+	left, _ := ctx.Value(noteKey{}).(*note)
+	if left == nil {
+		// Only a handler called outside observe gets here: a test.
+		return &note{}
+	}
+	return left
+}
+
 // observe is the outermost layer of every request. It gives the request an
 // identifier, sets the headers every response carries, turns a panic into
 // the error of the contract and logs one line.
 func observe(next http.Handler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
 		start := time.Now()
 		// Generated here and never taken from the client: a value a client
 		// chose could not be trusted to name one request in the log.
 		id := rand.Text()
+		left := &note{id: id}
+		ctx := context.WithValue(r.Context(), noteKey{}, left)
+		r = r.WithContext(ctx)
 		header := w.Header()
 		header.Set("X-Request-Id", id)
 		header.Set("X-Content-Type-Options", "nosniff")
@@ -249,9 +303,14 @@ func observe(next http.Handler, logger *slog.Logger) http.Handler {
 			if route == unmatched {
 				route = ""
 			}
-			logger.InfoContext(ctx, "request",
+			line := []any{
 				"request", id, "method", r.Method, "route", route,
-				"status", response.status, "duration", time.Since(start).String())
+				"status", response.status, "duration", time.Since(start).String(),
+			}
+			if left.key != "" {
+				line = append(line, "key", left.key)
+			}
+			logger.InfoContext(ctx, "request", line...)
 		}()
 		next.ServeHTTP(response, r)
 	})

@@ -44,3 +44,22 @@ const (
 	// what any operation takes.
 	APIMaxBodyBytes = 16_000
 )
+
+// What the API allows in a minute. Past it the answer is 429 until there is
+// room again.
+const (
+	// APIRequestsPerMinute is how many requests one key makes in a minute:
+	// two a second, sustained, which a script that manages links does not
+	// reach and a loop out of control does.
+	APIRequestsPerMinute = 120
+	// APIWritesPerMinute is how many of those requests may change
+	// something. Every change reaches the copy of the links that the
+	// redirect keeps in memory.
+	APIWritesPerMinute = 60
+	// APIFailedAuthenticationsPerMinute is how many requests without a
+	// valid key one client address makes before the address is refused,
+	// with a valid key too. A secret has 256 bits, so this is not what
+	// keeps a key from being guessed: it keeps a stranger from making the
+	// database answer for every guess.
+	APIFailedAuthenticationsPerMinute = 10
+)

@@ -7,6 +7,7 @@ package auth
 import (
 	"errors"
 	"slices"
+	"time"
 )
 
 // Scope is one thing a key may do in its workspace. Every management
@@ -54,6 +55,9 @@ type Principal struct {
 	WorkspaceID string
 	KeyID       string
 	Scopes      []Scope
+	// ExpiresAt is when the key stops authenticating, or nil when it has no
+	// expiry.
+	ExpiresAt *time.Time
 }
 
 // Allows reports whether the principal holds a scope.

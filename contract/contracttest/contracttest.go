@@ -33,12 +33,21 @@ import (
 // contract does not have is one of the things this is meant to find.
 func Client(t testing.TB) *http.Client {
 	t.Helper()
+	transport := &http.Transport{}
+	t.Cleanup(transport.CloseIdleConnections)
+	return Over(t, transport)
+}
+
+// Over returns a client that checks every response like Client, and sends
+// its requests through a transport the test gives: one that hands them to
+// a handler without a network, for a test that decides where a request
+// comes from.
+func Over(t testing.TB, transport http.RoundTripper) *http.Client {
+	t.Helper()
 	document, err := contract.Load(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport := &http.Transport{}
-	t.Cleanup(transport.CloseIdleConnections)
 	return &http.Client{
 		Transport: &checked{t: t, document: document, next: transport},
 		// The API has no redirects. One would be a response to check, not

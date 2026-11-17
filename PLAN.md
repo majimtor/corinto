@@ -314,9 +314,9 @@ Three contracts, each with one source (ADR 0011).
 
 Operations by slice. S1: links (create, read, list, update, disable,
 enable, delete), metrics (summary, series, breakdown), ingestion status,
-health. S2 adds none: sessions and keys are handled in the panel's pages.
-S3: sources, reception and receipts. S4: destinations, deliveries and
-retry.
+health and the key of the request. S2 adds none: sessions and keys are
+handled in the panel's pages. S3: sources, reception and receipts. S4:
+destinations, deliveries and retry.
 
 The contract stays on OpenAPI 3.1, and both validations use
 `getkin/kin-openapi`. Section 21 records the trial that decided it.
