@@ -253,6 +253,43 @@ func TestRevokingEndsAKeyAtOnceAndKeepsItsRow(t *testing.T) {
 	}
 }
 
+// The operator stands above the workspaces: it revokes a key by its
+// identifier alone, and is told which key it was.
+func TestTheOperatorRevokesAKeyWhateverItsWorkspace(t *testing.T) {
+	pool := database(t)
+	keys := auth.NewKeys(pool, rand.Reader)
+	owner := workspace(t, pool, 10)
+	key, credential := issue(t, keys, owner, auth.ScopeLinksWrite, auth.ScopeLinksRead)
+	_, untouched := issue(t, keys, owner, auth.ScopeLinksRead)
+
+	for name, id := range map[string]string{
+		"something that is not an identifier": "deploy-pipeline",
+		"an identifier that is not a key":     owner,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if revoked, err := keys.RevokeAnywhere(t.Context(), id); !errors.Is(err, auth.ErrNotFound) || revoked.ID != "" {
+				t.Errorf("err = %v with the key %q, want %v and none", err, revoked.ID, auth.ErrNotFound)
+			}
+		})
+	}
+
+	revoked, err := keys.RevokeAnywhere(t.Context(), key.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revoked.ID != key.ID || revoked.WorkspaceID != owner || revoked.Name != key.Name ||
+		!slices.Equal(revoked.Scopes, key.Scopes) || !revoked.CreatedAt.Equal(key.CreatedAt) {
+		t.Errorf("the key revoked is %+v, want %+v", revoked, key)
+	}
+	refused(t, keys, credential)
+	if _, err := keys.Authenticate(t.Context(), untouched); err != nil {
+		t.Errorf("another key of the workspace was revoked with it: %v", err)
+	}
+	if _, err := keys.RevokeAnywhere(t.Context(), key.ID); !errors.Is(err, auth.ErrNotFound) {
+		t.Errorf("revoking again: err = %v, want %v", err, auth.ErrNotFound)
+	}
+}
+
 // Twenty issues at once in a workspace with room for three keys: exactly
 // three succeed. Without the lock on the workspace, several would count two
 // keys and all would insert.

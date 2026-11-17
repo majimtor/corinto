@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -22,9 +23,11 @@ const (
 const usageText = `usage: corinto <command>
 
 commands:
-  api      run the api process; in this version it only answers its health
-           endpoints
-  migrate  apply the migrations the database does not have yet, and exit
+  api       run the api process; in this version it only answers its health
+            endpoints
+  migrate   apply the migrations the database does not have yet, and exit
+  operator  act on the database as the operator; run it without an action
+            to see the actions
 `
 
 func main() {
@@ -36,26 +39,38 @@ func main() {
 func execute() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return run(ctx, os.Args[1:], os.Getenv, os.Stderr)
+	return run(ctx, os.Args[1:], os.Getenv, os.Stdout, os.Stderr)
 }
 
 // run is the program without the process around it: arguments, environment
-// and output come in as parameters, so that a test can call it.
-func run(ctx context.Context, args []string, getenv func(string) string, stderr io.Writer) int {
-	if len(args) != 1 {
+// and output come in as parameters, so that a test can call it. Only the
+// operator writes to stdout; the log of every command goes to stderr.
+func run(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
 		usage(stderr)
 		return exitUsage
 	}
 	logger := slog.New(slog.NewJSONHandler(stderr, nil))
 
 	var err error
-	switch args[0] {
-	case "api":
+	switch {
+	case args[0] == "operator":
+		err = runOperator(ctx, args[1:], getenv, stdout, logger)
+	case len(args) != 1:
+		usage(stderr)
+		return exitUsage
+	case args[0] == "api":
 		err = runAPI(ctx, getenv, logger)
-	case "migrate":
+	case args[0] == "migrate":
 		err = runMigrate(ctx, getenv, logger)
 	default:
 		usage(stderr)
+		return exitUsage
+	}
+	var wrongUsage usageError
+	if errors.As(err, &wrongUsage) {
+		// Nothing useful can be done if writing the usage text fails.
+		_, _ = io.WriteString(stderr, operatorUsageText+"\n"+wrongUsage.reason+"\n")
 		return exitUsage
 	}
 	if err != nil {
