@@ -4,4 +4,5 @@
 !go.mod
 !go.sum
 !cmd
+!contract
 !internal

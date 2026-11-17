@@ -12,7 +12,17 @@ info:
 
     Errors are Problem Details (RFC 9457) with a stable `code`. Text in an
     error is for developers and is not translated; clients translate from
-    the code.
+    the code. `type` is always `about:blank`: the code is what identifies an
+    error.
+
+    A request that matches no operation is answered `404` with the code
+    `not_found`, or `405` with the code `method_not_allowed` and the methods
+    of the path in `Allow`. A request whose declared body is larger than
+    16 kB is answered `413` with the code `payload_too_large` whatever its
+    path. All three are Problem Details.
+
+    Every response carries `X-Request-Id`, which names the request in the
+    logs of the server.
   version: 0.0.0
   license:
     name: MIT
@@ -20,8 +30,51 @@ info:
 servers:
   - url: /
     description: The host that serves the API.
-# The skeleton has no operations yet. Each slice adds its own.
-paths: {}
+paths:
+  /v1/health:
+    get:
+      operationId: getHealth
+      summary: Whether the API answers.
+      description: >-
+        Says that the process that serves the API is running. It asks
+        nothing of the database and needs no key.
+      security: []
+      responses:
+        "200":
+          description: The API answers.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
+  /v1/openapi.yaml:
+    get:
+      operationId: getContract
+      summary: This document.
+      description: >-
+        The contract the server validates requests against, as the binary
+        embeds it. It needs no key.
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI document.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            # No schema: the document is described by the OpenAPI
+            # specification, not by itself.
+            application/yaml: {}
+        "400":
+          $ref: "#/components/responses/Problem"
+        "500":
+          $ref: "#/components/responses/Problem"
 components:
   securitySchemes:
     apiKey:
@@ -30,14 +83,32 @@ components:
       description: >-
         An API key of a workspace, in the `Authorization` header. Each
         operation names the scope it requires.
+  headers:
+    RequestId:
+      description: >-
+        Identifier the server gives to the request. It is in the log line of
+        the request and is never taken from the client.
+      required: true
+      schema:
+        type: string
   responses:
     Problem:
       description: An error.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
       content:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
   schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
     Problem:
       type: object
       required: [type, title, status, code]
@@ -45,6 +116,7 @@ components:
         type:
           type: string
           format: uri-reference
+          const: about:blank
         title:
           type: string
         status:
@@ -56,8 +128,14 @@ components:
         code:
           type: string
           description: >-
-            Stable identifier of the error. It becomes an enumeration with
-            the first operations.
+            Stable identifier of the error. New values are added with the
+            operations that need them.
+          enum:
+            - invalid_request
+            - not_found
+            - method_not_allowed
+            - payload_too_large
+            - internal_error
         errors:
           type: array
           description: One entry per field of the request that was rejected.
