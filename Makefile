@@ -15,6 +15,7 @@ GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v
 COMPOSE := docker compose --file deploy/compose.yaml
 COMPOSE_PROJECT := corinto
 IMAGE := ghcr.io/majimtor/corinto
+API_URL := http://127.0.0.1:8080
 HEALTH_URL := http://127.0.0.1:8081
 
 .PHONY: up down test integration verify lint secrets docs image
@@ -24,7 +25,7 @@ up: deploy/.env
 	$(COMPOSE) up --build --detach --wait
 	@curl --silent --show-error --fail --output /dev/null \
 		--retry 30 --retry-delay 1 --retry-all-errors $(HEALTH_URL)/readyz
-	@echo "corinto is up; health endpoints on $(HEALTH_URL)"
+	@echo "corinto is up; the API on $(API_URL), health endpoints on $(HEALTH_URL)"
 
 # Stops the system and deletes its data. The stack is disposable: the next
 # `make up` starts from nothing.

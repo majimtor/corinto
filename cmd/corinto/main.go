@@ -23,8 +23,8 @@ const (
 const usageText = `usage: corinto <command>
 
 commands:
-  api       run the api process; in this version it only answers its health
-            endpoints
+  api       run the api process: the management API on one port and its
+            health endpoints on another
   migrate   apply the migrations the database does not have yet, and exit
   operator  act on the database as the operator; run it without an action
             to see the actions

@@ -11,9 +11,10 @@ for what they measure, and signed webhooks in both directions.
 ## Status
 
 In development. The plan and the architecture decisions are written, and
-the foundations are being laid: so far, one binary whose `api` command
-answers its health endpoints, and the local stack that runs it next to its
-database. This section goes away when the first slice ships.
+the first slice is being built: so far, one binary whose `api` command
+serves the first two operations of the contract, and the local stack that
+runs it next to its database. This section goes away when the first slice
+ships.
 
 ## Where to look
 
@@ -31,14 +32,16 @@ database. This section goes away when the first slice ships.
 ## Run it
 
 One command starts PostgreSQL 18, applies the migrations and starts the
-`api` process, which so far only answers its health endpoints, on port
-8081:
+`api` process, which serves the management API on port 8080 and its health
+endpoints on port 8081:
 
 ```sh
 make up
 ```
 
-Then `http://127.0.0.1:8081/readyz` answers `ready`. The command needs
+Then `http://127.0.0.1:8081/readyz` answers `ready`, and
+`http://127.0.0.1:8080/v1/openapi.yaml` returns the contract of the API,
+which so far has two operations. The command needs
 Docker, `make` and `curl`. It generates the database password of the stack
 in `deploy/.env`, which is never versioned; `.env.example` lists the
 variables the binary reads. `make down` stops the stack and deletes its

@@ -10,6 +10,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY cmd ./cmd
+COPY contract ./contract
 COPY internal ./internal
 # A static binary: no C library to match in the final stage. -trimpath keeps
 # the paths of the build machine out of it.

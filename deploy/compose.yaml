@@ -38,8 +38,10 @@ services:
     command: ["api"]
     environment:
       CORINTO_DATABASE_URL: *database-url
+      CORINTO_API_ADDR: ":8080"
       CORINTO_HEALTH_ADDR: ":8081"
     ports:
+      - "127.0.0.1:8080:8080"
       - "127.0.0.1:8081:8081"
     depends_on:
       migrate:

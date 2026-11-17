@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/majimtor/corinto/contract/contracttest"
 	"github.com/majimtor/corinto/internal/postgres"
 	"github.com/majimtor/corinto/internal/postgres/postgrestest"
 )
@@ -30,6 +31,7 @@ func TestMain(m *testing.M) { postgrestest.Main(m) }
 func environmentFor(databaseURL string) func(string) string {
 	return environmentOf(map[string]string{
 		"CORINTO_DATABASE_URL":    databaseURL,
+		"CORINTO_API_ADDR":        "127.0.0.1:0",
 		"CORINTO_HEALTH_ADDR":     "127.0.0.1:0",
 		"CORINTO_REDIRECT_DOMAIN": redirectDomain,
 	})
@@ -61,12 +63,40 @@ func TestMigrateThenTheAPIStartsAndIsReady(t *testing.T) {
 	exited := make(chan int, 1)
 	go func() { exited <- run(ctx, []string{"api"}, env, io.Discard, stderr) }()
 
-	addr := healthAddr(t, stderr)
+	addr := announced(t, stderr, "health endpoints listening")
 	if got := status(t, "http://"+addr+"/livez"); got != http.StatusOK {
 		t.Errorf("/livez = %d, want %d", got, http.StatusOK)
 	}
 	if got := status(t, "http://"+addr+"/readyz"); got != http.StatusOK {
 		t.Errorf("/readyz = %d, want %d", got, http.StatusOK)
+	}
+
+	// The API answers on its own port, and what it answers is checked
+	// against the contract by the client.
+	client := contracttest.Client(t)
+	apiURL := "http://" + announced(t, stderr, "api listening")
+	for path, want := range map[string]int{
+		"/v1/health":       http.StatusOK,
+		"/v1/openapi.yaml": http.StatusOK,
+		"/v1/nothing":      http.StatusNotFound,
+		"/readyz":          http.StatusNotFound,
+	} {
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, apiURL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != want {
+			t.Errorf("GET %s on the port of the API = %d, want %d", path, response.StatusCode, want)
+		}
+	}
+	// And the port of the probes does not serve the API.
+	if got := status(t, "http://"+addr+"/v1/health"); got != http.StatusNotFound {
+		t.Errorf("/v1/health on the port of the probes = %d, want %d", got, http.StatusNotFound)
 	}
 
 	cancel()
@@ -138,9 +168,9 @@ func TestTheAPIRefusesADatabaseAheadOfTheBinary(t *testing.T) {
 	}
 }
 
-// healthAddr waits for the log line that announces the health endpoints and
-// returns the address in it.
-func healthAddr(t *testing.T, log *lockedBuffer) string {
+// announced waits for the log line with which the process says that
+// something listens, and returns the address in it.
+func announced(t *testing.T, log *lockedBuffer, message string) string {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
@@ -150,13 +180,13 @@ func healthAddr(t *testing.T, log *lockedBuffer) string {
 				Msg  string `json:"msg"`
 				Addr string `json:"addr"`
 			}
-			if json.Unmarshal(scanner.Bytes(), &line) == nil && line.Msg == "health endpoints listening" {
+			if json.Unmarshal(scanner.Bytes(), &line) == nil && line.Msg == message {
 				return line.Addr
 			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("the process never announced its health endpoints; log: %s", log.String())
+	t.Fatalf("the process never logged %q; log: %s", message, log.String())
 	return ""
 }
 
