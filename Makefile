@@ -66,11 +66,24 @@ lint:
 # Scans the whole history for secrets. The pre-commit hook looks at what is
 # staged; this finds what got past it. The repository is mounted read-only
 # and marked safe, because the container runs as another user.
+#
+# Then it proves that the scan knows the API keys of this project, which
+# .gitleaks.toml adds to the scanner's own rules: a key made up on the spot
+# and never written anywhere is piped to the scanner and has to be found.
+# Exit code 3 means found; anything else fails, a configuration that does
+# not load included.
 secrets:
 	docker run --rm --volume "$(CURDIR):/repo:ro" \
 		--env GIT_CONFIG_COUNT=1 \
 		--env GIT_CONFIG_KEY_0=safe.directory --env GIT_CONFIG_VALUE_0=/repo \
 		$(GITLEAKS_IMAGE) git --redact --no-banner --exit-code 1 /repo
+	@printf 'cor_%s_%s\n' "$$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')" \
+		"$$(LC_ALL=C tr -dc 'a-z2-7' < /dev/urandom | head -c 52)" | \
+	docker run --rm --interactive --volume "$(CURDIR)/.gitleaks.toml:/config.toml:ro" \
+		$(GITLEAKS_IMAGE) stdin --config /config.toml --redact --no-banner --exit-code 3 \
+		>/dev/null 2>&1; \
+	test $$? -eq 3 || { echo "the secret scan does not find an API key of this project" >&2; exit 1; }
+	@echo "the secret scan finds an API key of this project"
 
 # Lints every Markdown file with the configuration in .markdownlint-cli2.yaml.
 docs:

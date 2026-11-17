@@ -1,0 +1,17 @@
+# Configuration of the secret scan. The pre-commit hook and `make secrets`,
+# which CI runs, both read it.
+
+# The rules that come with the scanner stay; the one below is added.
+[extend]
+useDefault = true
+
+# An API key of this project (PLAN.md section 9). The rules that come with
+# the scanner look for the keys of well-known services and for values
+# assigned to names such as "token"; a key of this project in a sentence, a
+# test or an example matches none of them. This rule goes by the form of the
+# key alone.
+[[rules]]
+id = "corinto-api-key"
+description = "An API key of Corinto"
+regex = '''\bcor_[0-9a-f]{32}_[a-z2-7]{52}\b'''
+keywords = ["cor_"]
