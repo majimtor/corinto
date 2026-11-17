@@ -2,7 +2,6 @@ package link
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -116,32 +115,16 @@ func (s *Store) Create(ctx context.Context, workspaceID string, draft Draft) (Li
 	// After a commit this does nothing; before one it undoes everything.
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
-	// The row of the workspace is locked until the commit. Creations in one
-	// workspace wait for each other, so the count below cannot be passed by
-	// two of them at once, and a workspace cannot be blocked halfway.
-	var (
-		state            string
-		mayChooseAliases bool
-		allowlist        []byte
-		maxLinks         int
-	)
-	err = tx.QueryRow(ctx,
-		`SELECT state, may_choose_aliases, allowed_destinations, max_links
-		   FROM workspaces WHERE id = $1 FOR UPDATE`, workspace,
-	).Scan(&state, &mayChooseAliases, &allowlist, &maxLinks)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Link{}, ErrWorkspaceNotFound
-	}
+	// The row of the workspace is locked until the commit, so the count
+	// below cannot be passed by two creations at once.
+	settings, err := LockWorkspace(ctx, tx, workspaceID)
 	if err != nil {
-		return Link{}, fmt.Errorf("read the workspace: %w", err)
-	}
-	if state != "active" {
-		return Link{}, ErrWorkspaceBlocked
+		return Link{}, err
 	}
 
 	identifier := ""
 	if draft.Alias != "" {
-		if !mayChooseAliases {
+		if !settings.MayChooseAliases {
 			return Link{}, ErrAliasNotPermitted
 		}
 		if identifier, err = ParseAlias(draft.Alias); err != nil {
@@ -149,11 +132,7 @@ func (s *Store) Create(ctx context.Context, workspaceID string, draft Draft) (Li
 		}
 	}
 
-	policy := Policy{RedirectHost: s.domain}
-	if err := json.Unmarshal(allowlist, &policy.Allowed); err != nil {
-		return Link{}, fmt.Errorf("read the allowlist of the workspace: %w", err)
-	}
-	destination, err := ParseDestination(draft.Destination, policy)
+	destination, err := ParseDestination(draft.Destination, Policy{RedirectHost: s.domain, Allowed: settings.Allowed})
 	if err != nil {
 		return Link{}, err
 	}
@@ -169,7 +148,7 @@ func (s *Store) Create(ctx context.Context, workspaceID string, draft Draft) (Li
 	).Scan(&live); err != nil {
 		return Link{}, fmt.Errorf("count the links of the workspace: %w", err)
 	}
-	if live >= maxLinks {
+	if live >= settings.MaxLinks {
 		return Link{}, ErrQuotaExceeded
 	}
 
@@ -273,7 +252,9 @@ func (s *Store) List(ctx context.Context, workspaceID, after string, limit int) 
 }
 
 // parseID reads an identifier of the database. One that is not well formed
-// names nothing, which is how the caller treats it.
+// names nothing, which is how the caller treats it. The package of the keys
+// has the same few lines: sharing them would tie the two packages for less
+// than it saves.
 func parseID(id string) (pgtype.UUID, bool) {
 	var parsed pgtype.UUID
 	if err := parsed.Scan(id); err != nil || !parsed.Valid {

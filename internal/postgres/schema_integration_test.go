@@ -108,7 +108,7 @@ func TestTheSchemaKeepsTheRulesOfALink(t *testing.T) {
 
 	var workspace string
 	if err := pool.QueryRow(ctx,
-		`INSERT INTO workspaces (name, max_links) VALUES ('Acme', 1000) RETURNING id`).Scan(&workspace); err != nil {
+		`INSERT INTO workspaces (name, max_links, max_keys) VALUES ('Acme', 1000, 10) RETURNING id`).Scan(&workspace); err != nil {
 		t.Fatal(err)
 	}
 	const insert = `INSERT INTO links (workspace_id, domain, identifier, destination, resolved_destination)
@@ -169,15 +169,57 @@ func TestTheSchemaKeepsTheRulesOfAWorkspace(t *testing.T) {
 		name string
 		sql  string
 	}{
-		{"a state outside the two", `INSERT INTO workspaces (name, max_links, state) VALUES ('Acme', 10, 'paused')`},
-		{"an empty name", `INSERT INTO workspaces (name, max_links) VALUES ('', 10)`},
-		{"a negative quota", `INSERT INTO workspaces (name, max_links) VALUES ('Acme', -1)`},
-		{"an allowlist that is not a list", `INSERT INTO workspaces (name, max_links, allowed_destinations) VALUES ('Acme', 10, '{}')`},
+		{"a state outside the two", `INSERT INTO workspaces (name, max_links, max_keys, state) VALUES ('Acme', 10, 10, 'paused')`},
+		{"an empty name", `INSERT INTO workspaces (name, max_links, max_keys) VALUES ('', 10, 10)`},
+		{"a negative quota of links", `INSERT INTO workspaces (name, max_links, max_keys) VALUES ('Acme', -1, 10)`},
+		{"a negative quota of keys", `INSERT INTO workspaces (name, max_links, max_keys) VALUES ('Acme', 10, -1)`},
+		{"an allowlist that is not a list", `INSERT INTO workspaces (name, max_links, max_keys, allowed_destinations) VALUES ('Acme', 10, 10, '{}')`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if code := violation(t, pool, c.sql); code != checkViolation {
 				t.Errorf("code = %s, want %s", code, checkViolation)
+			}
+		})
+	}
+}
+
+func TestTheSchemaKeepsTheRulesOfAKey(t *testing.T) {
+	pool := migrated(t)
+	ctx := t.Context()
+
+	var workspace string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO workspaces (name, max_links, max_keys) VALUES ('Acme', 1000, 10) RETURNING id`).Scan(&workspace); err != nil {
+		t.Fatal(err)
+	}
+	// The hash of no secret: 32 bytes of zeros.
+	const insert = `INSERT INTO api_keys (workspace_id, name, secret_hash, scopes, expires_at)
+		VALUES ($1, $2, decode(repeat('00', $3), 'hex'), $4, $5)`
+	if _, err := pool.Exec(ctx, insert, workspace, "Deploy pipeline", 32, []string{"links:read"}, nil); err != nil {
+		t.Fatalf("a key within the rules: %v", err)
+	}
+
+	cases := []struct {
+		name      string
+		workspace string
+		key       string
+		hashBytes int
+		scopes    []string
+		expiry    any
+		want      string
+	}{
+		{"a scope outside the five", workspace, "Deploy pipeline", 32, []string{"links:read", "links:delete"}, nil, checkViolation},
+		{"no scope", workspace, "Deploy pipeline", 32, []string{}, nil, checkViolation},
+		{"a hash that is not 32 bytes", workspace, "Deploy pipeline", 20, []string{"links:read"}, nil, checkViolation},
+		{"an empty name", workspace, "", 32, []string{"links:read"}, nil, checkViolation},
+		{"an expiry before the key exists", workspace, "Deploy pipeline", 32, []string{"links:read"}, "2020-01-01T00:00:00Z", checkViolation},
+		{"a workspace that does not exist", "00000000-0000-7000-8000-000000000000", "Deploy pipeline", 32, []string{"links:read"}, nil, foreignKeyViolation},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if code := violation(t, pool, insert, c.workspace, c.key, c.hashBytes, c.scopes, c.expiry); code != c.want {
+				t.Errorf("code = %s, want %s", code, c.want)
 			}
 		})
 	}
