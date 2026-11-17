@@ -11,17 +11,21 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/moby/moby/client"
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
@@ -29,6 +33,10 @@ import (
 // adminURL is the connection URL of the server that Main started, to its
 // maintenance database.
 var adminURL string
+
+// ownerLabel marks a container of this package with the test binary that
+// started it: the name of the machine, a slash and the process identifier.
+const ownerLabel = "corinto.postgrestest.owner"
 
 var composeImage = regexp.MustCompile(`(?m)^\s*image:\s*(postgres:\S+)\s*$`)
 
@@ -62,27 +70,14 @@ func run(m *testing.M) (int, error) {
 	// the tests die. It is switched off: that container holds the Docker
 	// socket and its image cannot be pinned by digest from here. This
 	// function removes its own container instead, also when the run is
-	// interrupted or about to time out. Only a process killed outright
-	// leaves one behind.
+	// interrupted or about to time out. A test binary that dies at once, by
+	// a kill or by a panic in a test, leaves its container behind, and the
+	// next run removes it.
 	if err := os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true"); err != nil {
 		return 0, err
 	}
-	image, err := imageOfTheLocalStack()
-	if err != nil {
-		return 0, err
-	}
-	// Generated for this run: no password is written anywhere, not even one
-	// that only a test would use.
-	password, err := randomName()
-	if err != nil {
-		return 0, err
-	}
-	container, err := tcpostgres.Run(ctx, image,
-		tcpostgres.WithUsername("corinto"),
-		tcpostgres.WithPassword(password),
-		tcpostgres.WithDatabase("postgres"),
-		tcpostgres.BasicWaitStrategies(),
-	)
+	removeOrphans(ctx, os.Stderr)
+	container, err := startServer(ctx)
 	defer func() { _ = testcontainers.TerminateContainer(container) }()
 	if err != nil {
 		return 0, fmt.Errorf("start PostgreSQL in a container (is Docker running?): %w", err)
@@ -104,6 +99,94 @@ func run(m *testing.M) (int, error) {
 		}
 		return 0, errors.New("interrupted; the container was removed")
 	}
+}
+
+// startServer starts the PostgreSQL of this test binary, labelled with it.
+// The container is returned with an error too, when there is one to remove.
+func startServer(ctx context.Context) (*tcpostgres.PostgresContainer, error) {
+	image, err := imageOfTheLocalStack()
+	if err != nil {
+		return nil, err
+	}
+	// Generated for this run: no password is written anywhere, not even one
+	// that only a test would use.
+	password, err := randomName()
+	if err != nil {
+		return nil, err
+	}
+	return tcpostgres.Run(ctx, image,
+		tcpostgres.WithUsername("corinto"),
+		tcpostgres.WithPassword(password),
+		tcpostgres.WithDatabase("postgres"),
+		tcpostgres.BasicWaitStrategies(),
+		testcontainers.WithLabels(map[string]string{ownerLabel: owner(os.Getpid())}),
+	)
+}
+
+// owner returns the value of the label for a test binary of this machine.
+func owner(pid int) string {
+	// Without a name the machine is the empty one, here and in every run.
+	machine, _ := os.Hostname()
+	return machine + "/" + strconv.Itoa(pid)
+}
+
+// removeOrphans removes the containers that test binaries of this machine
+// started and did not live to remove. It is housekeeping: what it cannot do
+// it says in notes and leaves for the next run, since several test binaries
+// start at once and may find the same container.
+func removeOrphans(ctx context.Context, notes io.Writer) {
+	docker, err := testcontainers.NewDockerClientWithOpts(ctx)
+	if err != nil {
+		// Starting the container reports the same problem, with its cause.
+		return
+	}
+	defer func() { _ = docker.Close() }()
+	labelled, err := docker.ContainerList(ctx, client.ContainerListOptions{
+		All:     true,
+		Filters: make(client.Filters).Add("label", ownerLabel),
+	})
+	if err != nil {
+		return
+	}
+	for _, container := range labelled.Items {
+		if !orphan(container.Labels[ownerLabel]) {
+			continue
+		}
+		_, err := docker.ContainerRemove(ctx, container.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		if err != nil {
+			_, _ = fmt.Fprintf(notes, "postgrestest: a container left by an earlier run was not removed: %v\n", err)
+			continue
+		}
+		_, _ = fmt.Fprintf(notes, "postgrestest: removed a container left by an earlier run (%s)\n", container.Labels[ownerLabel])
+	}
+}
+
+// orphan reports whether the test binary that a label names is gone. On any
+// doubt the answer is no: a container in use must never be removed. So a
+// label of another machine is left alone, because its process identifiers
+// mean nothing here, and so is one that cannot be read.
+func orphan(label string) bool {
+	machine, number, found := strings.Cut(label, "/")
+	if !found || owner(0) != machine+"/0" {
+		return false
+	}
+	pid, err := strconv.Atoi(number)
+	if err != nil || pid <= 0 {
+		return false
+	}
+	// This binary has not started its container yet, so one that carries
+	// its identifier belongs to an earlier process that had the same one.
+	if pid == os.Getpid() {
+		return true
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return true
+	}
+	defer func() { _ = process.Release() }()
+	// Signal 0 delivers nothing and only asks whether the process exists.
+	err = process.Signal(syscall.Signal(0))
+	return errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH)
 }
 
 // timeoutOfGoTest returns the timeout go test was given, if any.
