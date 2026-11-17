@@ -22,8 +22,9 @@ const (
 const usageText = `usage: corinto <command>
 
 commands:
-  api    run the api process; in this version it only answers its health
-         endpoints
+  api      run the api process; in this version it only answers its health
+           endpoints
+  migrate  apply the migrations the database does not have yet, and exit
 `
 
 func main() {
@@ -51,6 +52,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 	switch args[0] {
 	case "api":
 		err = runAPI(ctx, getenv, logger)
+	case "migrate":
+		err = runMigrate(ctx, getenv, logger)
 	default:
 		usage(stderr)
 		return exitUsage

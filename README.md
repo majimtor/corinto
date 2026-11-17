@@ -30,8 +30,9 @@ database. This section goes away when the first slice ships.
 
 ## Run it
 
-One command starts PostgreSQL 18 and the `api` process, which so far only
-answers its health endpoints, on port 8081:
+One command starts PostgreSQL 18, applies the migrations and starts the
+`api` process, which so far only answers its health endpoints, on port
+8081:
 
 ```sh
 make up
@@ -62,9 +63,11 @@ git config core.hooksPath .githooks
 GitHub. It needs Go and Docker: the `go` command downloads the toolchain
 that `go.mod` names and builds the analysers at the versions pinned in the
 `Makefile`, and the other tools run from images pinned there too.
-`make test` runs the unit tests alone and `make lint` the compilation and
-the static analysers. Markdown is checked with `markdownlint-cli2`; the
-configuration lives in `.markdownlint-cli2.yaml`.
+`make test` runs the unit tests alone, `make integration` adds the tests
+that need a real PostgreSQL, which they start in a container, and
+`make lint` runs the compilation and the static analysers. Markdown is
+checked with `markdownlint-cli2`; the configuration lives in
+`.markdownlint-cli2.yaml`.
 
 ## Licence
 
