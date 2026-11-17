@@ -21,13 +21,17 @@ import (
 	"github.com/majimtor/corinto/internal/postgres/postgrestest"
 )
 
+// The host that serves the short links of these tests.
+const redirectDomain = "go.example.dev"
+
 func TestMain(m *testing.M) { postgrestest.Main(m) }
 
 // environmentFor returns what the binary reads, pointed at a database.
 func environmentFor(databaseURL string) func(string) string {
 	return environmentOf(map[string]string{
-		"CORINTO_DATABASE_URL": databaseURL,
-		"CORINTO_HEALTH_ADDR":  "127.0.0.1:0",
+		"CORINTO_DATABASE_URL":    databaseURL,
+		"CORINTO_HEALTH_ADDR":     "127.0.0.1:0",
+		"CORINTO_REDIRECT_DOMAIN": redirectDomain,
 	})
 }
 

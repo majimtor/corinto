@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/majimtor/corinto/internal/auth"
+	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/postgres/postgrestest"
 )
 
@@ -232,5 +233,117 @@ func TestTheOperatorRefusesADatabaseThatWasNotMigrated(t *testing.T) {
 	}
 	if !strings.Contains(log, "corinto migrate") {
 		t.Errorf("the log does not say what to run: %s", log)
+	}
+}
+
+// newLink stores a link of a workspace, which no action of the operator
+// does, and returns it.
+func newLink(t *testing.T, pool *pgxpool.Pool, workspaceID string) link.Link {
+	t.Helper()
+	created, err := link.NewStore(pool, redirectDomain, rand.Reader).Create(t.Context(), workspaceID,
+		link.Draft{Destination: "https://example.com/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return created
+}
+
+// stateOf returns the state of a link.
+func stateOf(t *testing.T, pool *pgxpool.Pool, linkID string) string {
+	t.Helper()
+	var state string
+	if err := pool.QueryRow(t.Context(), `SELECT state FROM links WHERE id = $1`, linkID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	return state
+}
+
+func TestTheOperatorBlocksALinkByItsShortIdentifier(t *testing.T) {
+	env, pool := migrated(t)
+	workspaceID, _ := printed(t, env, "create-workspace", "--name", "Acme")["id"].(string)
+	reported, bystander := newLink(t, pool, workspaceID), newLink(t, pool, workspaceID)
+
+	blocked := printed(t, env, "block-link", "--identifier", reported.Identifier)
+	want := map[string]any{
+		"id": reported.ID, "workspace_id": workspaceID, "domain": redirectDomain,
+		"identifier": reported.Identifier, "state": "blocked",
+	}
+	if !equalJSON(blocked, want) {
+		t.Errorf("block-link printed %v, want %v", blocked, want)
+	}
+	if got := stateOf(t, pool, reported.ID); got != "blocked" {
+		t.Errorf("the link reported is %q, want it blocked", got)
+	}
+	if got := stateOf(t, pool, bystander.ID); got != "active" {
+		t.Errorf("another link is %q, want it active", got)
+	}
+
+	// The row of a link is not what a report carries, and it names nothing.
+	code, stdout, log := operate(t, env, "block-link", "--identifier", bystander.ID)
+	if code != exitFailure || stdout != "" || !strings.Contains(log, "no such link") {
+		t.Errorf("exit code = %d and %q printed, want %d and nothing; log: %s", code, stdout, exitFailure, log)
+	}
+}
+
+func TestTheOperatorBlocksAWorkspaceWithItsLinksAndItsKeys(t *testing.T) {
+	env, pool := migrated(t)
+	keys := auth.NewKeys(pool, rand.Reader)
+	issueKey := func(workspaceID string) string {
+		t.Helper()
+		key, _ := printed(t, env, "issue-key", "--workspace", workspaceID, "--name", "Deploy pipeline",
+			"--scope", "links:read")["key"].(string)
+		return key
+	}
+
+	workspaceID, _ := printed(t, env, "create-workspace", "--name", "Acme")["id"].(string)
+	otherID, _ := printed(t, env, "create-workspace", "--name", "Globex")["id"].(string)
+	links := []link.Link{newLink(t, pool, workspaceID), newLink(t, pool, workspaceID)}
+	credentials := []string{issueKey(workspaceID), issueKey(workspaceID)}
+	otherLink, otherCredential := newLink(t, pool, otherID), issueKey(otherID)
+
+	blocked := printed(t, env, "block-workspace", "--workspace", workspaceID)
+	want := map[string]any{"id": workspaceID, "name": "Acme", "links_blocked": 2, "keys_revoked": 2}
+	if !equalJSON(blocked, want) {
+		t.Errorf("block-workspace printed %v, want %v", blocked, want)
+	}
+
+	var state string
+	if err := pool.QueryRow(t.Context(), `SELECT state FROM workspaces WHERE id = $1`, workspaceID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "blocked" {
+		t.Errorf("the workspace is %q, want it blocked", state)
+	}
+	for _, blockedLink := range links {
+		if got := stateOf(t, pool, blockedLink.ID); got != "blocked" {
+			t.Errorf("a link of the workspace is %q, want it blocked", got)
+		}
+	}
+	for _, credential := range credentials {
+		if _, err := keys.Authenticate(t.Context(), credential); !errors.Is(err, auth.ErrInvalidKey) {
+			t.Errorf("a key of the workspace gives %v, want %v", err, auth.ErrInvalidKey)
+		}
+	}
+	if got := stateOf(t, pool, otherLink.ID); got != "active" {
+		t.Errorf("the link of another workspace is %q, want it active", got)
+	}
+	if _, err := keys.Authenticate(t.Context(), otherCredential); err != nil {
+		t.Errorf("the key of another workspace gives %v, want none", err)
+	}
+
+	// Nothing more can be issued in it, and blocking it again is not an
+	// error.
+	code, stdout, log := operate(t, env, "issue-key", "--workspace", workspaceID, "--name", "n", "--scope", "links:read")
+	if code != exitFailure || stdout != "" || !strings.Contains(log, "workspace is blocked") {
+		t.Errorf("issue-key in the blocked workspace: exit code = %d and %q printed; log: %s", code, stdout, log)
+	}
+	again := printed(t, env, "block-workspace", "--workspace", workspaceID)
+	if !equalJSON(again, map[string]any{"id": workspaceID, "name": "Acme", "links_blocked": 0, "keys_revoked": 0}) {
+		t.Errorf("blocking again printed %v", again)
+	}
+
+	code, stdout, log = operate(t, env, "block-workspace", "--workspace", "00000000-0000-7000-8000-000000000000")
+	if code != exitFailure || stdout != "" || !strings.Contains(log, "no such workspace") {
+		t.Errorf("a workspace that does not exist: exit code = %d and %q printed; log: %s", code, stdout, log)
 	}
 }

@@ -10,23 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/majimtor/corinto/internal/link"
 )
 
 // pointer returns the address of a value, for the optional fields of a
 // change.
 func pointer[T any](value T) *T { return &value }
-
-// block does what the operator will: it blocks a link from outside its
-// workspace.
-func block(t *testing.T, pool *pgxpool.Pool, id string) {
-	t.Helper()
-	if _, err := pool.Exec(t.Context(), `UPDATE links SET state = 'blocked', version = version + 1 WHERE id = $1`, id); err != nil {
-		t.Fatal(err)
-	}
-}
 
 func TestUpdateChangesWhatItIsGivenAndNothingElse(t *testing.T) {
 	pool := database(t)
@@ -184,7 +173,9 @@ func TestABlockedLinkCanOnlyBeReadAndDeleted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	block(t, pool, created.ID)
+	if _, err := store.Block(t.Context(), created.Identifier); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := store.Update(t.Context(), owner, created.ID, link.Change{Destination: pointer("https://example.com/other")}); !errors.Is(err, link.ErrLinkBlocked) {
 		t.Errorf("update: err = %v, want %v", err, link.ErrLinkBlocked)

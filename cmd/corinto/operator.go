@@ -26,11 +26,15 @@ actions:
                     [--max-links N] [--max-keys N]
   issue-key         --workspace ID --name NAME --scope SCOPE... [--expires TIME]
   revoke-key        --key ID
+  block-link        --identifier IDENTIFIER
+  block-workspace   --workspace ID
 
 An action prints one JSON object on standard output and logs on standard
 error. issue-key prints the key once: only a hash of its secret is stored.
 PREFIX is a destination without query or fragment, such as
 https://docs.example.com/guides. TIME is written as 2027-01-31T00:00:00Z.
+IDENTIFIER is what follows the redirect domain in a short link.
+block-workspace also blocks the links of the workspace and revokes its keys.
 `
 
 // usageError is a command line the operator has to write again. It is told
@@ -56,20 +60,23 @@ func runOperator(ctx context.Context, args []string, getenv func(string) string,
 	if len(args) == 0 {
 		return usageError{"an action is missing"}
 	}
-	parse, known := map[string]func([]string) (action, error){
+	parse, known := map[string]func([]string, *environment) (action, error){
 		"create-workspace": parseCreateWorkspace,
 		"issue-key":        parseIssueKey,
 		"revoke-key":       parseRevokeKey,
+		"block-link":       parseBlockLink,
+		"block-workspace":  parseBlockWorkspace,
 	}[args[0]]
 	if !known {
 		return usageError{fmt.Sprintf("there is no action %q", args[0])}
 	}
-	act, err := parse(args[1:])
+	// An action asks the environment for what only it needs, once its
+	// command line is right.
+	env := environment{getenv: getenv}
+	act, err := parse(args[1:], &env)
 	if err != nil {
 		return err
 	}
-
-	env := environment{getenv: getenv}
 	databaseURL := env.require("CORINTO_DATABASE_URL")
 	if err := env.err(); err != nil {
 		return err
@@ -137,7 +144,7 @@ func (r *repeated) Set(value string) error {
 	return nil
 }
 
-func parseCreateWorkspace(args []string) (action, error) {
+func parseCreateWorkspace(args []string, _ *environment) (action, error) {
 	set := options("create-workspace")
 	var (
 		draft link.WorkspaceDraft
@@ -192,7 +199,7 @@ func parseCreateWorkspace(args []string) (action, error) {
 	}, nil
 }
 
-func parseIssueKey(args []string) (action, error) {
+func parseIssueKey(args []string, _ *environment) (action, error) {
 	set := options("issue-key")
 	var scopes repeated
 	workspace := set.String("workspace", "", "")
@@ -233,7 +240,7 @@ func parseIssueKey(args []string) (action, error) {
 	}, nil
 }
 
-func parseRevokeKey(args []string) (action, error) {
+func parseRevokeKey(args []string, _ *environment) (action, error) {
 	set := options("revoke-key")
 	id := set.String("key", "", "")
 	if err := read(set, args, "key"); err != nil {
@@ -252,6 +259,72 @@ func parseRevokeKey(args []string) (action, error) {
 				Name        string `json:"name"`
 			}{key.ID, key.WorkspaceID, key.Name},
 			logged: []any{"workspace", key.WorkspaceID, "key", key.ID},
+		}, nil
+	}, nil
+}
+
+func parseBlockLink(args []string, env *environment) (action, error) {
+	set := options("block-link")
+	identifier := set.String("identifier", "", "")
+	if err := read(set, args, "identifier"); err != nil {
+		return nil, err
+	}
+	// A short identifier names a link only next to its domain.
+	domain := env.require("CORINTO_REDIRECT_DOMAIN")
+
+	return func(ctx context.Context, pool *pgxpool.Pool) (outcome, error) {
+		blocked, err := link.NewStore(pool, domain, rand.Reader).Block(ctx, *identifier)
+		if err != nil {
+			return outcome{}, fmt.Errorf("block the link: %w", err)
+		}
+		return outcome{
+			printed: struct {
+				ID          string     `json:"id"`
+				WorkspaceID string     `json:"workspace_id"`
+				Domain      string     `json:"domain"`
+				Identifier  string     `json:"identifier"`
+				State       link.State `json:"state"`
+			}{blocked.ID, blocked.WorkspaceID, blocked.Domain, blocked.Identifier, blocked.State},
+			logged: []any{"workspace", blocked.WorkspaceID, "link", blocked.ID},
+		}, nil
+	}, nil
+}
+
+func parseBlockWorkspace(args []string, _ *environment) (action, error) {
+	set := options("block-workspace")
+	id := set.String("workspace", "", "")
+	if err := read(set, args, "workspace"); err != nil {
+		return nil, err
+	}
+
+	return func(ctx context.Context, pool *pgxpool.Pool) (outcome, error) {
+		// One transaction: a workspace is never left blocked with keys that
+		// still open it, nor with links that still redirect.
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			return outcome{}, fmt.Errorf("begin the block of a workspace: %w", err)
+		}
+		// After a commit this does nothing; before one it undoes everything.
+		defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+		name, links, err := link.BlockWorkspace(ctx, tx, *id)
+		if err != nil {
+			return outcome{}, fmt.Errorf("block the workspace: %w", err)
+		}
+		keys, err := auth.RevokeAll(ctx, tx, *id)
+		if err != nil {
+			return outcome{}, fmt.Errorf("block the workspace: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return outcome{}, fmt.Errorf("commit the block of a workspace: %w", err)
+		}
+		return outcome{
+			printed: struct {
+				ID           string `json:"id"`
+				Name         string `json:"name"`
+				LinksBlocked int    `json:"links_blocked"`
+				KeysRevoked  int    `json:"keys_revoked"`
+			}{*id, name, links, keys},
+			logged: []any{"workspace", *id, "links", links, "keys", keys},
 		}, nil
 	}, nil
 }

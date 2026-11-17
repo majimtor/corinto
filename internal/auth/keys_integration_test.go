@@ -290,6 +290,61 @@ func TestTheOperatorRevokesAKeyWhateverItsWorkspace(t *testing.T) {
 	}
 }
 
+// Blocking a workspace ends its keys in the transaction that blocks it:
+// they end together or not at all.
+func TestRevokeAllEndsTheKeysOfOneWorkspaceInTheTransactionOfTheCaller(t *testing.T) {
+	pool := database(t)
+	keys := auth.NewKeys(pool, rand.Reader)
+	owner, stranger := workspace(t, pool, 10), workspace(t, pool, 10)
+	_, first := issue(t, keys, owner, auth.ScopeLinksRead)
+	_, second := issue(t, keys, owner, auth.ScopeLinksWrite)
+	gone, _ := issue(t, keys, owner, auth.ScopeLinksRead)
+	if err := keys.Revoke(t.Context(), owner, gone.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, foreign := issue(t, keys, stranger, auth.ScopeLinksRead)
+
+	revokeAll := func(commit bool) int {
+		t.Helper()
+		tx, err := pool.Begin(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(t.Context()) }()
+		ended, err := auth.RevokeAll(t.Context(), tx, owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if commit {
+			if err := tx.Commit(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return ended
+	}
+
+	if ended := revokeAll(false); ended != 2 {
+		t.Errorf("%d keys ended, want the 2 that were in force", ended)
+	}
+	for _, credential := range []string{first, second} {
+		if _, err := keys.Authenticate(t.Context(), credential); err != nil {
+			t.Errorf("a revocation that was undone ended a key: %v", err)
+		}
+	}
+
+	if ended := revokeAll(true); ended != 2 {
+		t.Errorf("%d keys ended, want 2", ended)
+	}
+	refused(t, keys, first)
+	refused(t, keys, second)
+	if _, err := keys.Authenticate(t.Context(), foreign); err != nil {
+		t.Errorf("the key of another workspace was ended: %v", err)
+	}
+	if ended := revokeAll(true); ended != 0 {
+		t.Errorf("revoking again ended %d keys, want none", ended)
+	}
+}
+
 // Twenty issues at once in a workspace with room for three keys: exactly
 // three succeed. Without the lock on the workspace, several would count two
 // keys and all would insert.
