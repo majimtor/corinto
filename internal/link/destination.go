@@ -47,9 +47,9 @@ type Policy struct {
 // the scheme: another port is another service. Path is a prefix matched by
 // whole segments, so that /docs allows /docs/guide and not /docs-other.
 type AllowedPrefix struct {
-	Scheme string
-	Host   string
-	Path   string
+	Scheme string `json:"scheme"`
+	Host   string `json:"host"`
+	Path   string `json:"path"`
 }
 
 // ParseDestination validates where a link leads and returns it in the form
