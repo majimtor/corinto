@@ -245,6 +245,22 @@ func (k *Keys) RevokeAnywhere(ctx context.Context, id string) (Key, error) {
 	return revoked, nil
 }
 
+// RevokeAll ends every key of a workspace, in the transaction of the caller,
+// and returns how many it ended. Blocking a workspace calls it, so that the
+// block and the end of its keys are committed together or not at all.
+func RevokeAll(ctx context.Context, tx pgx.Tx, workspaceID string) (int, error) {
+	workspace, ok := parseID(workspaceID)
+	if !ok {
+		return 0, nil
+	}
+	tag, err := tx.Exec(ctx,
+		`UPDATE api_keys SET revoked_at = now() WHERE workspace_id = $1 AND revoked_at IS NULL`, workspace)
+	if err != nil {
+		return 0, fmt.Errorf("revoke the keys of the workspace: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // parseID reads an identifier of the database. One that is not well formed
 // names nothing, which is how the caller treats it. The package of the
 // links has the same few lines: sharing them would tie the two packages for

@@ -38,7 +38,7 @@ const (
 var (
 	// ErrNotFound covers a link that does not exist, one that is deleted and
 	// one of another workspace: from outside they cannot be told apart.
-	ErrNotFound          = errors.New("the workspace has no such link")
+	ErrNotFound          = errors.New("there is no such link")
 	ErrWorkspaceNotFound = errors.New("there is no such workspace")
 	ErrWorkspaceBlocked  = errors.New("the workspace is blocked")
 	ErrAliasNotPermitted = errors.New("the workspace cannot choose aliases")
@@ -82,8 +82,9 @@ type Draft struct {
 	ExpiresAt   *time.Time
 }
 
-// Store reads and writes links. Every method takes the workspace and loads a
-// link by workspace and identifier, so that no query crosses workspaces.
+// Store reads and writes links. Every method a workspace calls takes the
+// workspace and loads a link by workspace and identifier, so that no query
+// crosses workspaces. Block is the exception: it is the operator's.
 type Store struct {
 	pool   *pgxpool.Pool
 	domain string

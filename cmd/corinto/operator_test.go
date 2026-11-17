@@ -25,6 +25,8 @@ func TestTheOperatorRefusesWrongUsageBeforeItReadsItsEnvironment(t *testing.T) {
 		{"a key without a scope", []string{"issue-key", "--workspace", "w", "--name", "Deploy pipeline"}, "issue-key needs --scope"},
 		{"an expiry that is not a time", []string{"issue-key", "--workspace", "w", "--name", "n", "--scope", "links:read", "--expires", "tomorrow"}, "--expires is a time"},
 		{"a revocation without a key", []string{"revoke-key"}, "revoke-key needs --key"},
+		{"a block without a link", []string{"block-link"}, "block-link needs --identifier"},
+		{"a block without a workspace", []string{"block-workspace"}, "block-workspace needs --workspace"},
 		{"a request for help", []string{"issue-key", "--help"}, "help"},
 	}
 	for _, c := range cases {
@@ -58,5 +60,31 @@ func TestTheOperatorNamesItsMissingVariable(t *testing.T) {
 	}
 	if stdout.Len() != 0 {
 		t.Errorf("something was printed: %q", stdout.String())
+	}
+}
+
+// block-link is the one action that needs the redirect domain, and it says
+// so together with the variable every action needs.
+func TestBlockLinkNamesEveryMissingVariable(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	args := []string{"operator", "block-link", "--identifier", "k7m2xq9d"}
+	if code := run(t.Context(), args, environmentOf(nil), &stdout, &stderr); code != exitFailure {
+		t.Errorf("exit code = %d, want %d", code, exitFailure)
+	}
+	for _, name := range []string{"CORINTO_DATABASE_URL", "CORINTO_REDIRECT_DOMAIN"} {
+		if !strings.Contains(stderr.String(), name) {
+			t.Errorf("stderr does not name %s: %q", name, stderr.String())
+		}
+	}
+}
+
+func TestTheOtherActionsDoNotAskForTheRedirectDomain(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	args := []string{"operator", "block-workspace", "--workspace", "00000000-0000-7000-8000-000000000000"}
+	if code := run(t.Context(), args, environmentOf(nil), &stdout, &stderr); code != exitFailure {
+		t.Errorf("exit code = %d, want %d", code, exitFailure)
+	}
+	if strings.Contains(stderr.String(), "CORINTO_REDIRECT_DOMAIN") {
+		t.Errorf("block-workspace asks for the redirect domain: %q", stderr.String())
 	}
 }
