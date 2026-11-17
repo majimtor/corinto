@@ -17,7 +17,7 @@ COMPOSE_PROJECT := corinto
 IMAGE := ghcr.io/majimtor/corinto
 HEALTH_URL := http://127.0.0.1:8081
 
-.PHONY: up down test verify lint secrets docs image
+.PHONY: up down test integration verify lint secrets docs image
 
 # Starts the whole system on this machine and waits until it reports ready.
 up: deploy/.env
@@ -45,15 +45,22 @@ deploy/.env:
 test:
 	go test -race -shuffle=on -count=1 ./...
 
+# Runs every test, the ones that need a real PostgreSQL included. They start
+# one in a container, so Docker must be running. The unit tests run again
+# here: a build tag adds files to a package and takes none away.
+integration:
+	go test -tags integration -race -shuffle=on -count=1 ./...
+
 # Runs every check CI runs, except code scanning, which runs on GitHub. A
 # clean clone must pass it.
-verify: lint test secrets docs image
+verify: lint test integration secrets docs image
 
-# Compiles everything and runs the static analysers.
+# Compiles everything and runs the static analysers, over the integration
+# tests too.
 lint:
 	go build ./...
-	go vet ./...
-	$(STATICCHECK) ./...
+	go vet -tags integration ./...
+	$(STATICCHECK) -tags integration ./...
 	$(GOLANGCI_LINT) run
 
 # Scans the whole history for secrets. The pre-commit hook looks at what is

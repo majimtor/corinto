@@ -19,19 +19,31 @@ services:
       timeout: 3s
       retries: 30
 
-  api:
-    build:
+  # Applies the migrations and exits. It is the only service that changes
+  # the schema; the others wait for it, because a process refuses to start
+  # on a schema it was not built with.
+  migrate:
+    build: &image
       context: ..
       dockerfile: deploy/Dockerfile
+    command: ["migrate"]
+    environment:
+      CORINTO_DATABASE_URL: &database-url postgres://corinto:${POSTGRES_PASSWORD}@db:5432/corinto
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: *image
     command: ["api"]
     environment:
-      CORINTO_DATABASE_URL: postgres://corinto:${POSTGRES_PASSWORD}@db:5432/corinto
+      CORINTO_DATABASE_URL: *database-url
       CORINTO_HEALTH_ADDR: ":8081"
     ports:
       - "127.0.0.1:8081:8081"
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   db-data:

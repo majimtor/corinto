@@ -2,6 +2,11 @@
 # version pinned in the Makefile.
 version: "2"
 
+run:
+  # The integration tests are code too.
+  build-tags:
+    - integration
+
 linters:
   # The standard set (errcheck, govet, ineffassign, staticcheck, unused) plus
   # the linters below, each named for the failure it catches here.

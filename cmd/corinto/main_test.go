@@ -1,16 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
-	"context"
-	"encoding/json"
-	"io"
-	"net/http"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 )
 
 // environmentOf returns a getenv that knows only the given variables.
@@ -26,6 +19,7 @@ func TestRunRejectsWrongUsage(t *testing.T) {
 		{"no command", nil},
 		{"unknown command", []string{"serve"}},
 		{"extra argument", []string{"api", "now"}},
+		{"extra argument to migrate", []string{"migrate", "up"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -69,89 +63,36 @@ func TestAPIKeepsThePasswordOutOfTheLog(t *testing.T) {
 	}
 }
 
-func TestAPIStartsWithoutTheDatabaseAndSaysItIsNotReady(t *testing.T) {
+func TestAPIRefusesToStartWithoutTheDatabase(t *testing.T) {
+	// A sentinel, not a credential: the test fails if the error that reports
+	// the missing database echoes the password of the URL.
+	const sentinel = "sentinel-not-a-password"
 	values := map[string]string{
 		// Nothing listens on port 1 of the loopback interface.
-		"CORINTO_DATABASE_URL": "postgres://corinto@127.0.0.1:1/corinto?connect_timeout=1",
+		"CORINTO_DATABASE_URL": "postgres://corinto:" + sentinel + "@127.0.0.1:1/corinto?connect_timeout=1",
 		"CORINTO_HEALTH_ADDR":  "127.0.0.1:0",
 	}
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	stderr := &lockedBuffer{}
-	exited := make(chan int, 1)
-	go func() { exited <- run(ctx, []string{"api"}, environmentOf(values), stderr) }()
-
-	addr := healthAddr(t, stderr)
-	if got := status(t, "http://"+addr+"/livez"); got != http.StatusOK {
-		t.Errorf("/livez = %d, want %d", got, http.StatusOK)
+	var stderr bytes.Buffer
+	if code := run(t.Context(), []string{"api"}, environmentOf(values), &stderr); code != exitFailure {
+		t.Errorf("exit code = %d, want %d", code, exitFailure)
 	}
-	if got := status(t, "http://"+addr+"/readyz"); got != http.StatusServiceUnavailable {
-		t.Errorf("/readyz = %d, want %d", got, http.StatusServiceUnavailable)
+	if !strings.Contains(stderr.String(), "schema version") {
+		t.Errorf("the log does not say that the schema could not be checked: %q", stderr.String())
 	}
-
-	cancel()
-	select {
-	case code := <-exited:
-		if code != exitOK {
-			t.Errorf("exit code = %d after a clean stop, want %d; log: %s", code, exitOK, stderr.String())
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("the process did not stop")
+	if strings.Contains(stderr.String(), "health endpoints listening") {
+		t.Errorf("the process started to listen without having checked the schema: %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), sentinel) {
+		t.Errorf("the log carries the password: %q", stderr.String())
 	}
 }
 
-// healthAddr waits for the log line that announces the health endpoints and
-// returns the address in it.
-func healthAddr(t *testing.T, log *lockedBuffer) string {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		scanner := bufio.NewScanner(strings.NewReader(log.String()))
-		for scanner.Scan() {
-			var line struct {
-				Msg  string `json:"msg"`
-				Addr string `json:"addr"`
-			}
-			if json.Unmarshal(scanner.Bytes(), &line) == nil && line.Msg == "health endpoints listening" {
-				return line.Addr
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
+func TestMigrateNamesItsMissingVariable(t *testing.T) {
+	var stderr bytes.Buffer
+	if code := run(t.Context(), []string{"migrate"}, environmentOf(nil), &stderr); code != exitFailure {
+		t.Errorf("exit code = %d, want %d", code, exitFailure)
 	}
-	t.Fatalf("the process never announced its health endpoints; log: %s", log.String())
-	return ""
-}
-
-func status(t *testing.T, url string) int {
-	t.Helper()
-	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
-	if err != nil {
-		t.Fatal(err)
+	if !strings.Contains(stderr.String(), "CORINTO_DATABASE_URL") {
+		t.Errorf("stderr does not name CORINTO_DATABASE_URL: %q", stderr.String())
 	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _ = io.Copy(io.Discard, response.Body)
-	_ = response.Body.Close()
-	return response.StatusCode
-}
-
-// lockedBuffer is a buffer that the process under test writes and the test
-// reads at the same time.
-type lockedBuffer struct {
-	mu     sync.Mutex
-	buffer bytes.Buffer
-}
-
-func (b *lockedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buffer.Write(p)
-}
-
-func (b *lockedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buffer.String()
 }
