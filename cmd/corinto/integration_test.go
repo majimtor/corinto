@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/majimtor/corinto/internal/postgres"
 	"github.com/majimtor/corinto/internal/postgres/postgrestest"
 )
 
@@ -87,7 +89,14 @@ func TestTheAPIRefusesADatabaseThatWasNotMigrated(t *testing.T) {
 	if code != exitFailure {
 		t.Errorf("exit code = %d, want %d", code, exitFailure)
 	}
-	for _, want := range []string{"the database is at version 0", "the binary at 1", "corinto migrate"} {
+	// The version of the binary grows with every migration, so it is asked
+	// for and not written here.
+	built, err := postgres.BuiltVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := fmt.Sprintf("the binary at %d", built)
+	for _, want := range []string{"the database is at version 0", binary, "corinto migrate"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("the log does not say %q: %s", want, stderr.String())
 		}

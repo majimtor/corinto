@@ -42,7 +42,7 @@ func workspace(t *testing.T, pool *pgxpool.Pool, columns, values string) string 
 	t.Helper()
 	var id string
 	err := pool.QueryRow(t.Context(),
-		`INSERT INTO workspaces (name, max_links`+columns+`) VALUES ('Acme', 1000`+values+`) RETURNING id`).Scan(&id)
+		`INSERT INTO workspaces (name, max_links, max_keys`+columns+`) VALUES ('Acme', 1000, 10`+values+`) RETURNING id`).Scan(&id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestTheQuotaHoldsUnderConcurrencyAndTombstonesTakeNoRoom(t *testing.T) {
 	store := link.NewStore(pool, redirectDomain, rand.Reader)
 	var owner string
 	if err := pool.QueryRow(t.Context(),
-		`INSERT INTO workspaces (name, max_links) VALUES ('Small', 5) RETURNING id`).Scan(&owner); err != nil {
+		`INSERT INTO workspaces (name, max_links, max_keys) VALUES ('Small', 5, 10) RETURNING id`).Scan(&owner); err != nil {
 		t.Fatal(err)
 	}
 
