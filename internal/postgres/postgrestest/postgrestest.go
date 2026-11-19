@@ -38,6 +38,12 @@ var adminURL string
 // started it: the name of the machine, a slash and the process identifier.
 const ownerLabel = "corinto.postgrestest.owner"
 
+// removalWait is how long a container that could not be removed is given
+// to disappear. Several test binaries start at once and find the same
+// container: one removes it, and the others are told that its removal is
+// already in progress, or that it does not exist.
+const removalWait = 10 * time.Second
+
 var composeImage = regexp.MustCompile(`(?m)^\s*image:\s*(postgres:\S+)\s*$`)
 
 // Main runs the tests of a package with a PostgreSQL server for all of
@@ -153,11 +159,36 @@ func removeOrphans(ctx context.Context, notes io.Writer) {
 			continue
 		}
 		_, err := docker.ContainerRemove(ctx, container.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
-		if err != nil {
+		switch {
+		case err == nil:
+			_, _ = fmt.Fprintf(notes, "postgrestest: removed a container left by an earlier run (%s)\n", container.Labels[ownerLabel])
+		case gone(ctx, docker, container.ID):
+			// Another run was removing it, and has. What matters is that
+			// the container is not there, not who took it away.
+		default:
 			_, _ = fmt.Fprintf(notes, "postgrestest: a container left by an earlier run was not removed: %v\n", err)
-			continue
 		}
-		_, _ = fmt.Fprintf(notes, "postgrestest: removed a container left by an earlier run (%s)\n", container.Labels[ownerLabel])
+	}
+}
+
+// gone waits for a container to disappear, for removalWait at the most,
+// and reports whether it did. It asks for the container by listing it,
+// which answers the same whatever the reason the removal was refused for.
+func gone(ctx context.Context, docker client.ContainerAPIClient, id string) bool {
+	ctx, cancel := context.WithTimeout(ctx, removalWait)
+	defer cancel()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		found, err := docker.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: make(client.Filters).Add("id", id)})
+		if err == nil && len(found.Items) == 0 {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+		}
 	}
 }
 
