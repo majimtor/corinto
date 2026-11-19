@@ -1,0 +1,42 @@
+crawlers.json is derived from the list of crawler user agents of
+https://github.com/monperrus/crawler-user-agents, file
+crawler-user-agents.json at commit
+a727b357908004d61ba5758fa6425d379d9a4828 (2026-11-12).
+
+It keeps, for each of the 1,506 entries and in the same order, the pattern
+and the tags, unchanged. The address of the page of each crawler, its
+description, the date it was added and its examples are left out: the
+classifier reads only the pattern and the tags.
+
+testdata/crawler-examples.json holds the examples of the same list, which
+are real user-agent strings, for the tests of this package. Of its 2,125
+examples, 156 are left out because they could point at a person: the ones
+with an at sign, a mailto, an account of a code hosting site or the home
+page of a user. The other 1,969 are unchanged. Two patterns of the list are
+themselves the mailbox of a company, which is how its crawler names itself;
+they are kept, because without them that crawler would be counted as a
+person.
+
+crawlers.json is part of the binary; the examples are not. The licence of
+the original follows.
+
+The MIT License (MIT)
+
+Copyright (c) 2017 Martin Monperrus
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
