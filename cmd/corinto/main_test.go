@@ -40,7 +40,7 @@ func TestAPINamesEveryMissingVariable(t *testing.T) {
 	if code := run(t.Context(), []string{"api"}, environmentOf(nil), io.Discard, &stderr); code != exitFailure {
 		t.Errorf("exit code = %d, want %d", code, exitFailure)
 	}
-	for _, name := range []string{"CORINTO_DATABASE_URL", "CORINTO_API_ADDR", "CORINTO_HEALTH_ADDR"} {
+	for _, name := range []string{"CORINTO_DATABASE_URL", "CORINTO_API_ADDR", "CORINTO_HEALTH_ADDR", "CORINTO_REDIRECT_DOMAIN"} {
 		if !strings.Contains(stderr.String(), name) {
 			t.Errorf("stderr does not name %s: %q", name, stderr.String())
 		}
@@ -52,9 +52,10 @@ func TestAPIKeepsThePasswordOutOfTheLog(t *testing.T) {
 	// test fails if the error that reports it echoes the password.
 	const sentinel = "sentinel-not-a-password"
 	values := map[string]string{
-		"CORINTO_DATABASE_URL": "postgres://corinto:" + sentinel + "@db:not-a-port/corinto",
-		"CORINTO_API_ADDR":     "127.0.0.1:0",
-		"CORINTO_HEALTH_ADDR":  "127.0.0.1:0",
+		"CORINTO_DATABASE_URL":    "postgres://corinto:" + sentinel + "@db:not-a-port/corinto",
+		"CORINTO_API_ADDR":        "127.0.0.1:0",
+		"CORINTO_HEALTH_ADDR":     "127.0.0.1:0",
+		"CORINTO_REDIRECT_DOMAIN": "go.example.dev",
 	}
 	var stderr bytes.Buffer
 	if code := run(t.Context(), []string{"api"}, environmentOf(values), io.Discard, &stderr); code != exitFailure {
@@ -71,9 +72,10 @@ func TestAPIRefusesToStartWithoutTheDatabase(t *testing.T) {
 	const sentinel = "sentinel-not-a-password"
 	values := map[string]string{
 		// Nothing listens on port 1 of the loopback interface.
-		"CORINTO_DATABASE_URL": "postgres://corinto:" + sentinel + "@127.0.0.1:1/corinto?connect_timeout=1",
-		"CORINTO_API_ADDR":     "127.0.0.1:0",
-		"CORINTO_HEALTH_ADDR":  "127.0.0.1:0",
+		"CORINTO_DATABASE_URL":    "postgres://corinto:" + sentinel + "@127.0.0.1:1/corinto?connect_timeout=1",
+		"CORINTO_API_ADDR":        "127.0.0.1:0",
+		"CORINTO_HEALTH_ADDR":     "127.0.0.1:0",
+		"CORINTO_REDIRECT_DOMAIN": "go.example.dev",
 	}
 	var stderr bytes.Buffer
 	if code := run(t.Context(), []string{"api"}, environmentOf(values), io.Discard, &stderr); code != exitFailure {
@@ -105,6 +107,7 @@ func TestAPIRefusesAListOfProxiesItCannotRead(t *testing.T) {
 		"CORINTO_DATABASE_URL":    "postgres://corinto@127.0.0.1:1/corinto?connect_timeout=1",
 		"CORINTO_API_ADDR":        "127.0.0.1:0",
 		"CORINTO_HEALTH_ADDR":     "127.0.0.1:0",
+		"CORINTO_REDIRECT_DOMAIN": "go.example.dev",
 		"CORINTO_TRUSTED_PROXIES": "10.0.0.0/8, the-load-balancer",
 	}
 	var stderr bytes.Buffer

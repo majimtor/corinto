@@ -92,6 +92,153 @@ paths:
           $ref: "#/components/responses/Problem"
         "503":
           $ref: "#/components/responses/Problem"
+  /v1/links:
+    post:
+      operationId: createLink
+      summary: Create a link.
+      description: >-
+        Creates a link of the workspace of the key. Without an `alias` the
+        short identifier is generated. What the link redirects to is the
+        destination with the campaign parameters appended, computed once
+        here.
+      security:
+        - apiKey: [links:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkDraft"
+      responses:
+        "201":
+          description: The link that was created.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Location:
+              description: The path of the link.
+              required: true
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Link"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: >-
+            The alias is taken (`alias_taken`) or the workspace holds as many
+            links as its quota allows (`quota_exceeded`).
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "415":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+    get:
+      operationId: listLinks
+      summary: List the links of the workspace.
+      description: >-
+        Returns the links of the workspace of the key in the order in which
+        they were created, a page at a time. A link created while the pages
+        are read is neither repeated nor skipped.
+      security:
+        - apiKey: [links:read]
+      parameters:
+        - name: limit
+          in: query
+          description: The most links in the page.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          description: >-
+            The `next_cursor` of the page before. Without it the listing
+            starts at the first link.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      responses:
+        "200":
+          description: A page of links.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkPage"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /v1/links/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The `id` of the link.
+        schema:
+          type: string
+    get:
+      operationId: getLink
+      summary: Read a link.
+      description: >-
+        Returns a link of the workspace of the key. A link of another
+        workspace, a deleted one and one that never existed all answer
+        `404`.
+      security:
+        - apiKey: [links:read]
+      responses:
+        "200":
+          description: The link.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Link"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
   /v1/openapi.yaml:
     get:
       operationId: getContract
@@ -198,6 +345,157 @@ components:
           description: When the key stops being valid, or null when it has no expiry.
           type: [string, "null"]
           format: date-time
+    Link:
+      type: object
+      required:
+        - id
+        - domain
+        - identifier
+        - state
+        - destination
+        - resolved_destination
+        - campaign
+        - title
+        - tags
+        - expires_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          description: Identifier of the link in the API. It never changes.
+          type: string
+        domain:
+          description: The host that serves the short link.
+          type: string
+        identifier:
+          description: >-
+            What follows the domain in the short link: generated, or the
+            alias the link was created with.
+          type: string
+        state:
+          description: >-
+            `active` redirects; `disabled` does not until it is enabled
+            again; `blocked` was stopped by the operator and can only be
+            read and deleted. A link past its `expires_at` keeps its state
+            and does not redirect.
+          type: string
+          enum: [active, disabled, blocked]
+        destination:
+          description: Where the link leads, in the form in which it is stored.
+          type: string
+        resolved_destination:
+          description: >-
+            What the short link redirects to: the destination with the
+            campaign parameters appended.
+          type: string
+        campaign:
+          $ref: "#/components/schemas/Campaign"
+        title:
+          type: [string, "null"]
+        tags:
+          type: array
+          items:
+            type: string
+        expires_at:
+          description: When the link stops redirecting, or null when it does not expire.
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Campaign:
+      description: >-
+        The campaign parameters of a link: `utm_source`, `utm_medium`,
+        `utm_campaign`, `utm_term` and `utm_content`, in that order. A null
+        is a parameter the link does not set.
+      type: object
+      required: [source, medium, name, term, content]
+      properties:
+        source:
+          type: [string, "null"]
+        medium:
+          type: [string, "null"]
+        name:
+          type: [string, "null"]
+        term:
+          type: [string, "null"]
+        content:
+          type: [string, "null"]
+    LinkDraft:
+      description: What is given to create a link.
+      type: object
+      required: [destination]
+      additionalProperties: false
+      properties:
+        destination:
+          description: >-
+            An `http` or `https` URL, already percent-encoded, with a public
+            domain name as its host and no credentials. A workspace with an
+            allowlist takes only the destinations that match it.
+          type: string
+          minLength: 1
+          maxLength: 2048
+        alias:
+          description: >-
+            The short identifier to use instead of a generated one. Only a
+            workspace with the permission may choose it.
+          type: string
+          minLength: 3
+          maxLength: 40
+          pattern: "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+        campaign:
+          $ref: "#/components/schemas/CampaignDraft"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        tags:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+        expires_at:
+          description: Later than the moment of the request.
+          type: string
+          format: date-time
+    CampaignDraft:
+      description: The campaign parameters to set. One that is left out is not set.
+      type: object
+      additionalProperties: false
+      properties:
+        source:
+          $ref: "#/components/schemas/CampaignValue"
+        medium:
+          $ref: "#/components/schemas/CampaignValue"
+        name:
+          $ref: "#/components/schemas/CampaignValue"
+        term:
+          $ref: "#/components/schemas/CampaignValue"
+        content:
+          $ref: "#/components/schemas/CampaignValue"
+    CampaignValue:
+      type: string
+      minLength: 1
+      maxLength: 200
+    LinkPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Link"
+        next_cursor:
+          description: >-
+            What to send as `cursor` for the next page, or null when this is
+            the last one. It is opaque: a client sends it back as it came.
+          type: [string, "null"]
     Scope:
       description: One thing a key may do in its workspace.
       type: string
@@ -238,6 +536,9 @@ components:
             - forbidden
             - rate_limited
             - unavailable
+            - unsupported_media_type
+            - alias_taken
+            - quota_exceeded
         errors:
           type: array
           description: One entry per field of the request that was rejected.
@@ -245,10 +546,40 @@ components:
             $ref: "#/components/schemas/FieldError"
     FieldError:
       type: object
-      required: [field, code]
+      required: [in, field, code]
       properties:
+        in:
+          description: Where the rejected value was sent.
+          type: string
+          enum: [body, query]
         field:
+          description: >-
+            Which value was rejected: in the body, a JSON Pointer to it,
+            which is empty for the body as a whole; in the query, the name
+            of the parameter.
           type: string
-          description: JSON Pointer to the field, relative to the body.
         code:
+          description: >-
+            Why it was rejected. New values are added with the operations
+            that need them.
           type: string
+          enum:
+            - required
+            - unknown
+            - invalid
+            - too_short
+            - too_long
+            - too_many
+            - duplicate
+            - characters
+            - scheme
+            - credentials
+            - host
+            - port
+            - dot_segment
+            - redirect_domain
+            - not_allowed
+            - reserved
+            - not_permitted
+            - conflict
+            - in_the_past

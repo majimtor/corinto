@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -17,10 +19,12 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/majimtor/corinto/contract"
 	"github.com/majimtor/corinto/contract/contracttest"
 	"github.com/majimtor/corinto/internal/auth"
+	"github.com/majimtor/corinto/internal/link"
 )
 
 // keyring is what resolves a credential in these tests: it knows the ones
@@ -83,8 +87,13 @@ func (f from) RoundTrip(request *http.Request) (*http.Response, error) {
 	served := request.Clone(request.Context())
 	served.RemoteAddr = f.address
 	served.RequestURI = request.URL.RequestURI()
-	if served.Body == nil {
+	switch {
+	case served.Body == nil:
 		served.Body = http.NoBody
+	case served.Body != http.NoBody && served.ContentLength == 0:
+		// A client that does not know the length of its body sends it in
+		// chunks, and the server sees no length.
+		served.ContentLength = -1
 	}
 	recorder := httptest.NewRecorder()
 	f.handler.ServeHTTP(recorder, served)
@@ -108,7 +117,7 @@ func guarded(t *testing.T, proxies ...string) (http.Handler, *keyring, *clock, *
 	if err != nil {
 		t.Fatal(err)
 	}
-	return guardedWith(t, document, operations(nil), proxies...)
+	return guardedWith(t, document, operations(nil, nil, time.Now), proxies...)
 }
 
 func guardedWith(t *testing.T, document *openapi3.T, serving map[string]http.Handler, proxies ...string) (http.Handler, *keyring, *clock, *log) {
@@ -400,7 +409,7 @@ func withWrite(t *testing.T) (*openapi3.T, map[string]http.Handler) {
 		OperationID: "createThing",
 		Security:    &openapi3.SecurityRequirements{{"apiKey": {"links:write"}}},
 	}})
-	serving := operations(nil)
+	serving := operations(nil, nil, time.Now)
 	serving["createThing"] = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusCreated, map[string]string{"id": "thing"})
 	})
@@ -474,7 +483,7 @@ func TestAKeyMakes60ChangesAMinute(t *testing.T) {
 // whoever asked (docs/delivery-semantics.md).
 func TestTheAPIAnswers503WhenTheKeysCannotBeRead(t *testing.T) {
 	handler, keys, _, written := guarded(t)
-	keys.failure = errors.New("sentinel-of-the-database: connection refused")
+	keys.failure = &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("sentinel-of-the-database: connection refused")}
 
 	var last received
 	for range 12 {
@@ -487,10 +496,45 @@ func TestTheAPIAnswers503WhenTheKeysCannotBeRead(t *testing.T) {
 		}
 		last = response
 	}
-	failures := written.lines(t, "a key could not be resolved")
+	failures := written.lines(t, "an operation failed")
 	if len(failures) != 12 || failures[11]["request"] != last.header.Get("X-Request-Id") ||
-		failures[11]["error"] != "sentinel-of-the-database: connection refused" {
+		!strings.Contains(failures[11]["error"].(string), "sentinel-of-the-database") {
 		t.Errorf("the failures are logged as %v", failures)
+	}
+
+	// Anything else that goes wrong is the server's own fault, and says so.
+	keys.failure = errors.New("sentinel-of-a-defect")
+	response, body := ask(t, handler, "203.0.113.7:40000", "Bearer "+reader)
+	if response.status != http.StatusInternalServerError || code(t, body) != CodeInternalError || strings.Contains(string(body), "sentinel") {
+		t.Errorf("GET /v1/key = %d %s, want 500 %s and no cause", response.status, body, CodeInternalError)
+	}
+}
+
+// Only what says that the database did not answer is a 503.
+func TestWhatMeansThatTheDatabaseIsAway(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"a connection that cannot be opened", &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}, true},
+		{"a connection that broke", fmt.Errorf("read the link: %w", io.ErrUnexpectedEOF), true},
+		{"a wait that ran out", fmt.Errorf("read the link: %w", context.DeadlineExceeded), true},
+		{"a server that is stopping", &pgconn.PgError{Code: "57P01"}, true},
+		{"a server that is starting", &pgconn.PgError{Code: "57P03"}, true},
+		{"a server without connections left", &pgconn.PgError{Code: "53300"}, true},
+		{"a connection failure told by the server", &pgconn.PgError{Code: "08006"}, true},
+		{"a statement the database refused", &pgconn.PgError{Code: "42601"}, false},
+		{"a constraint", fmt.Errorf("insert the link: %w", &pgconn.PgError{Code: "23514"}), false},
+		{"a generator that gave no free identifier", link.ErrNoFreeIdentifier, false},
+		{"any other error", errors.New("a defect"), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := away(c.err); got != c.want {
+				t.Errorf("away(%v) = %v, want %v", c.err, got, c.want)
+			}
+		})
 	}
 }
 

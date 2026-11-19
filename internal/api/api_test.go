@@ -17,6 +17,7 @@ import (
 
 	"github.com/majimtor/corinto/contract"
 	"github.com/majimtor/corinto/contract/contracttest"
+	"github.com/majimtor/corinto/internal/link"
 )
 
 // log is where a server under test writes while the test reads.
@@ -222,7 +223,7 @@ func failing(t *testing.T, written io.Writer, id string, replacement http.Handle
 	if err != nil {
 		t.Fatal(err)
 	}
-	serving := operations(nil)
+	serving := operations(nil, nil, time.Now)
 	serving[id] = replacement
 	settings := Settings{Logger: slog.New(slog.NewJSONHandler(written, nil)), Keys: &keyring{}}
 	handler, err := newHandler(t.Context(), document, serving, settings, time.Now)
@@ -404,7 +405,7 @@ func TestTheServerDoesNotStartUnlessItServesExactlyTheContract(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			document, serving := load(t), operations(nil)
+			document, serving := load(t), operations(nil, nil, time.Now)
 			c.change(document, serving)
 			handler, err := newHandler(t.Context(), document, serving, settings, time.Now)
 			if err == nil || handler != nil {
@@ -418,7 +419,7 @@ func TestTheServerDoesNotStartUnlessItServesExactlyTheContract(t *testing.T) {
 		})
 	}
 
-	if _, err := newHandler(t.Context(), load(t), operations(nil), settings, time.Now); err != nil {
+	if _, err := newHandler(t.Context(), load(t), operations(nil, nil, time.Now), settings, time.Now); err != nil {
 		t.Errorf("with the contract and the operations as they are: err = %v", err)
 	}
 }
@@ -437,5 +438,79 @@ func TestTheCodesAreTheOnesOfTheContract(t *testing.T) {
 	}
 	if !slices.Equal(inContract, codes()) {
 		t.Errorf("the contract has the codes %v and the server %v", inContract, codes())
+	}
+}
+
+// The reasons are written twice, in the contract and here. This keeps the
+// two lists equal.
+func TestTheReasonsAreTheOnesOfTheContract(t *testing.T) {
+	document, err := contract.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := document.Components.Schemas["FieldError"].Value
+	var inContract []Reason
+	for _, value := range entry.Properties["code"].Value.Enum {
+		text, _ := value.(string)
+		inContract = append(inContract, Reason(text))
+	}
+	if !slices.Equal(inContract, reasons()) {
+		t.Errorf("the contract has the reasons %v and the server %v", inContract, reasons())
+	}
+	if places := entry.Properties["in"].Value.Enum; len(places) != 2 || places[0] != inBody || places[1] != inQuery {
+		t.Errorf("the contract has the places %v, want %s and %s", places, inBody, inQuery)
+	}
+}
+
+// The contract states the bounds of what a link takes, and the rules of a
+// link enforce them. A value at a bound of the contract is one the rules
+// accept, and one past it is one they refuse: neither list can move alone.
+func TestTheBoundsOfTheContractAreTheBoundsOfALink(t *testing.T) {
+	document, err := contract.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft := document.Components.Schemas["LinkDraft"].Value.Properties
+	bound := func(limit *uint64) int {
+		t.Helper()
+		if limit == nil {
+			t.Fatal("the contract leaves a value of a link without a bound")
+		}
+		return int(*limit) //nolint:gosec // a bound of the contract, a few thousand at most
+	}
+
+	alias := draft["alias"].Value
+	shortest, longest := int(alias.MinLength), bound(alias.MaxLength) //nolint:gosec // as above
+	for length, want := range map[int]bool{shortest - 1: false, shortest: true, longest: true, longest + 1: false} {
+		if _, err := link.ParseAlias(strings.Repeat("a", length)); (err == nil) != want {
+			t.Errorf("an alias of %d characters: err = %v, and the contract takes from %d to %d", length, err, shortest, longest)
+		}
+	}
+
+	longest = bound(draft["destination"].Value.MaxLength)
+	for length, want := range map[int]bool{longest: true, longest + 1: false} {
+		destination := "https://example.com/" + strings.Repeat("a", length-len("https://example.com/"))
+		if _, err := link.ParseDestination(destination, link.Policy{}); (err == nil) != want {
+			t.Errorf("a destination of %d characters: err = %v, and the contract takes up to %d", length, err, longest)
+		}
+	}
+
+	longest = bound(document.Components.Schemas["CampaignValue"].Value.MaxLength)
+	for length, want := range map[int]bool{longest: true, longest + 1: false} {
+		campaign := link.Campaign{Source: strings.Repeat("a", length)}
+		if _, err := link.Resolve("https://example.com/", campaign); (err == nil) != want {
+			t.Errorf("a campaign value of %d characters: err = %v, and the contract takes up to %d", length, err, longest)
+		}
+	}
+
+	tags := draft["tags"].Value
+	for name, pair := range map[string][2]int{
+		"the length of a title": {bound(draft["title"].Value.MaxLength), link.MaxTitleLength},
+		"the number of tags":    {bound(tags.MaxItems), link.MaxTags},
+		"the length of a tag":   {bound(tags.Items.Value.MaxLength), link.MaxTagLength},
+	} {
+		if pair[0] != pair[1] {
+			t.Errorf("%s is %d in the contract and %d in the rules of a link", name, pair[0], pair[1])
+		}
 	}
 }
