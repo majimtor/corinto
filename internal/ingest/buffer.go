@@ -49,6 +49,9 @@ const (
 	// counterProcessed counts the events added to the aggregates.
 	// MarkProcessed counts it, in the transaction that adds them.
 	counterProcessed Counter = "processed"
+	// counterDeadLettered counts the events set aside after their last
+	// attempt. Fail counts it, in the transaction that moves them.
+	counterDeadLettered Counter = "dead_lettered"
 )
 
 // Count is an amount to add to a counter of a UTC day.

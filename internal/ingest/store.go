@@ -2,14 +2,15 @@ package ingest
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/majimtor/corinto/internal/postgres"
 )
 
 // Store writes events and counts to PostgreSQL. It is the Inbox of the
@@ -22,6 +23,7 @@ type Store struct {
 // executor is what the store asks of a pool: every write is one statement.
 type executor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, arguments ...any) pgx.Row
 }
 
 // NewStore returns the store of the inbox over a pool.
@@ -146,24 +148,73 @@ func (s *Store) add(ctx context.Context, counts []Count) error {
 	return err
 }
 
-// refused reports whether the database answered that it will not take what
-// it was given: a value it cannot read, or one that breaks a constraint.
-// Trying again would get the same answer.
-func refused(err error) bool {
-	var answer *pgconn.PgError
-	if !errors.As(err, &answer) {
-		return false
+// The events go back as they were accepted, with their attempts whole
+// again, and are counted as dead-lettered no longer. What was accepted is
+// not counted again: it was, when the event was.
+const retryDeadLetters = `
+WITH back AS (
+    DELETE FROM event_dead_letters WHERE $1 = '' OR id = nullif($1, '')::uuid RETURNING *
+), pending AS (
+    INSERT INTO event_inbox (id, link_id, workspace_id, occurred_at, outcome, method, referrer_host,
+                             device, browser, class, rule, rules_version, accepted_at)
+    SELECT id, link_id, workspace_id, occurred_at, outcome, method, referrer_host,
+           device, browser, class, rule, rules_version, accepted_at
+      FROM back
+    RETURNING workspace_id, (occurred_at AT TIME ZONE 'UTC')::date AS day
+), counted AS (
+    SELECT day, workspace_id, count(*) AS events FROM pending GROUP BY day, workspace_id
+), fewer AS (
+    UPDATE pipeline_counters AS c SET value = c.value - counted.events
+      FROM counted
+     WHERE c.day = counted.day AND c.workspace_id = counted.workspace_id AND c.name = 'dead_lettered'
+)
+SELECT coalesce(sum(events), 0) FROM counted`
+
+// RetryDeadLetter sends a dead-lettered event back to the inbox, where it
+// has all its attempts again (docs/delivery-semantics.md, statement 5).
+func (s *Store) RetryDeadLetter(ctx context.Context, id string) error {
+	if id == "" {
+		return ErrNoDeadLetter
 	}
-	// The classes of SQLSTATE for a data exception and for an integrity
-	// constraint violation.
-	return strings.HasPrefix(answer.Code, "22") || strings.HasPrefix(answer.Code, "23")
+	sent, err := s.retry(ctx, id)
+	if _, malformed := postgres.Refused(err); malformed {
+		// An identifier the database cannot read names no event.
+		return ErrNoDeadLetter
+	}
+	if err != nil {
+		return err
+	}
+	if sent == 0 {
+		return ErrNoDeadLetter
+	}
+	return nil
+}
+
+// RetryDeadLetters sends every dead-lettered event back to the inbox, and
+// returns how many they were.
+func (s *Store) RetryDeadLetters(ctx context.Context) (int, error) {
+	return s.retry(ctx, "")
+}
+
+func (s *Store) retry(ctx context.Context, id string) (int, error) {
+	var sent int
+	if err := s.db.QueryRow(ctx, retryDeadLetters, id).Scan(&sent); err != nil {
+		return 0, fmt.Errorf("send dead-lettered events back to the inbox: %w", err)
+	}
+	return sent, nil
+}
+
+// refused reports whether the database answered that it will not take what
+// it was given. Trying again would get the same answer.
+func refused(err error) bool {
+	_, refused := postgres.Refused(err)
+	return refused
 }
 
 // note logs a refusal by its code and the constraint it names, and never
 // by its text or its detail, which quote the row.
 func (s *Store) note(ctx context.Context, message string, err error) {
-	var answer *pgconn.PgError
-	if errors.As(err, &answer) {
-		s.logger.ErrorContext(ctx, message, "sqlstate", answer.Code, "constraint", answer.ConstraintName)
+	if refusal, refused := postgres.Refused(err); refused {
+		s.logger.ErrorContext(ctx, message, "sqlstate", refusal.Code, "constraint", refusal.Constraint)
 	}
 }

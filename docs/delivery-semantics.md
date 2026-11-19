@@ -69,7 +69,10 @@ The redirect always answers; when something fails, analytics give way.
    send a dead-lettered event back to the inbox, which gives it five
    attempts again. When a batch fails, its events are tried one by one, so
    one bad event does not hold the others back and only its own failures
-   count as attempts.
+   count as attempts. A failure is an answer of the database that it does
+   not take the event. A database that is away, a deadlock or a batch that
+   ran out of time are not: the event is tried again, with no attempt
+   less.
    Tests: `TestAnEventThatExhaustsItsAttemptsIsDeadLettered`,
    `TestOneBadEventDoesNotHoldItsBatch` and
    `TestADeadLetteredEventCanBeReprocessed` in `internal/rollup`, against
@@ -114,6 +117,7 @@ PostgreSQL, which drops events on purpose and reads both equalities.
 | --- | --- | --- | --- |
 | The database is down | Redirects continue from the replica. Events wait in the buffer; once it is full, new ones are dropped and counted when the database returns. The API answers `503` | Age of the replica; lost count | `TestTheDatabaseAbsent` in `cmd/corinto` |
 | `worker` is stopped | Accepted events stay pending. Nothing is lost | Pending count; the instant of statement 7 stops advancing | `TestAConsumerStoppedMidBatch` in `cmd/corinto` |
+| `worker` hangs in the middle of a batch | The database ends its transaction after 30 seconds without a statement. Its events are pending, and the rows it held are free for the others | Pending count | `TestTheDatabaseEndsTheTransactionOfAConsumerThatHangs` in `internal/rollup` |
 | The buffer is full | The new event is dropped and counted | Lost count | Statement 3 |
 | The inbox refuses an event | It is dropped; the rest of its batch is accepted | Lost count; an error in the log | `TestOneRefusedEventDoesNotHoldItsBatch` in `internal/ingest` |
 | `redirect` crashes | The events in its memory are lost and not counted, together with the served count not yet written | Nowhere: see the declared limits | None |
@@ -161,3 +165,4 @@ it does when the database is absent at start, is in PLAN.md section 3.
 | Consumer poll | Every second, and at once after a whole batch |
 | Attempts per event | 5 |
 | Waits between attempts | 1 s, 5 s, 30 s, 2 min |
+| Idle transaction of a consumer | Ended after 30 seconds |

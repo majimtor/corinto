@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/majimtor/corinto/internal/classify"
 	"github.com/majimtor/corinto/internal/ingest"
+	"github.com/majimtor/corinto/internal/postgres"
 )
 
 const (
@@ -41,6 +43,11 @@ const (
 	// batchTimeout bounds the transaction of a batch, so that a database
 	// that hangs is a failed batch and not a consumer that stopped.
 	batchTimeout = 10 * time.Second
+	// idleTimeout is how long the database lets a transaction of a
+	// consumer sit without a statement before it ends it. A consumer that
+	// hangs between two statements holds the rows it wrote; this gives
+	// them back to the others, and its events to the next attempt.
+	idleTimeout = 30 * time.Second
 
 	secondsInAnHour = 60 * 60
 	secondsInADay   = 24 * secondsInAnHour
@@ -61,11 +68,13 @@ const (
 type Consumer struct {
 	pool   *pgxpool.Pool
 	logger *slog.Logger
+	// idle is idleTimeout, but for a test that cannot wait that long.
+	idle time.Duration
 }
 
 // NewConsumer returns a consumer over a pool.
 func NewConsumer(pool *pgxpool.Pool, logger *slog.Logger) *Consumer {
-	return &Consumer{pool: pool, logger: logger}
+	return &Consumer{pool: pool, logger: logger, idle: idleTimeout}
 }
 
 // Run processes the inbox until its context is done: a batch, another at
@@ -110,14 +119,59 @@ func run(ctx context.Context, batch func(context.Context) (int, error), logger *
 // and marks them as processed, in one transaction: both happen or neither
 // does. It returns how many events it processed; none means that nothing
 // was pending, or that other consumers hold what is.
+//
+// When the database refuses the batch for something it holds, the events
+// are tried one by one, each in its own transaction, so that one bad event
+// does not hold the others back. Only the failure of an event on its own
+// counts as one of its attempts, and only a refusal is a failure: a
+// database that is away, a deadlock or a batch that ran out of time leave
+// the events as they were, to be tried again
+// (docs/delivery-semantics.md, statement 5).
 func (c *Consumer) Batch(ctx context.Context) (int, error) {
-	ctx, cancel := context.WithTimeout(ctx, batchTimeout)
-	defer cancel()
+	events, err := c.together(ctx)
+	if err == nil {
+		return len(events), nil
+	}
+	if _, refused := postgres.Refused(err); !refused {
+		return 0, err
+	}
+	processed := 0
+	for _, event := range events {
+		alone, err := c.alone(ctx, event)
+		if err != nil {
+			return processed, err
+		}
+		if alone {
+			processed++
+		}
+	}
+	return processed, nil
+}
+
+// begin begins a transaction of a consumer.
+func (c *Consumer) begin(ctx context.Context) (pgx.Tx, error) {
 	// Read committed: a consumer that waited for another to finish with a
 	// link has to see what the other wrote.
 	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
-		return 0, fmt.Errorf("begin a batch: %w", err)
+		return nil, fmt.Errorf("begin a transaction: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `SELECT set_config('idle_in_transaction_session_timeout', $1, true)`,
+		strconv.FormatInt(c.idle.Milliseconds(), 10)); err != nil {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		return nil, fmt.Errorf("bound the idle time of a transaction: %w", err)
+	}
+	return tx, nil
+}
+
+// together processes a batch in one transaction. It returns the events it
+// took, also when it fails: they are the ones to try one by one.
+func (c *Consumer) together(ctx context.Context) ([]ingest.Event, error) {
+	ctx, cancel := context.WithTimeout(ctx, batchTimeout)
+	defer cancel()
+	tx, err := c.begin(ctx)
+	if err != nil {
+		return nil, err
 	}
 	// After a commit this does nothing. Before it, the events go back to
 	// pending for whoever comes next.
@@ -125,18 +179,83 @@ func (c *Consumer) Batch(ctx context.Context) (int, error) {
 
 	events, err := ingest.Take(ctx, tx, BatchSize)
 	if err != nil || len(events) == 0 {
-		return 0, err
+		return nil, err
 	}
 	if err := add(ctx, tx, events); err != nil {
-		return 0, err
+		return events, err
 	}
 	if err := ingest.MarkProcessed(ctx, tx, events); err != nil {
-		return 0, err
+		return events, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("commit a batch: %w", err)
+		return events, fmt.Errorf("commit a batch: %w", err)
 	}
-	return len(events), nil
+	return events, nil
+}
+
+// alone processes one event in a transaction of its own, and reports
+// whether it was processed. An event that the database refuses is left
+// with one attempt more, or among the dead letters after the last; one
+// that somebody else took meanwhile is theirs.
+func (c *Consumer) alone(ctx context.Context, event ingest.Event) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, batchTimeout)
+	defer cancel()
+	tx, err := c.begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	// The event is held from here to the end, so that its failure is
+	// recorded by whoever saw it and by nobody else.
+	taken, err := ingest.TakeOne(ctx, tx, event.ID)
+	if err != nil || !taken {
+		return false, err
+	}
+	// The attempt is a part of the transaction that can be undone on its
+	// own: what it wrote goes, and the event stays held.
+	attempt, err := tx.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin an attempt: %w", err)
+	}
+	err = add(ctx, attempt, []ingest.Event{event})
+	if err == nil {
+		err = ingest.MarkProcessed(ctx, attempt, []ingest.Event{event})
+	}
+	if err == nil {
+		if err := attempt.Commit(ctx); err != nil {
+			return false, fmt.Errorf("end an attempt: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return false, fmt.Errorf("commit an event: %w", err)
+		}
+		return true, nil
+	}
+
+	refusal, refused := postgres.Refused(err)
+	if !refused {
+		return false, err
+	}
+	if err := attempt.Rollback(ctx); err != nil {
+		return false, fmt.Errorf("undo an attempt: %w", err)
+	}
+	dead, err := ingest.Fail(ctx, tx, event, refusal)
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit a failed attempt: %w", err)
+	}
+	// By its identifier, which is what the operator sends back to the
+	// inbox, and by the answer of the database without its text.
+	if dead {
+		c.logger.ErrorContext(ctx, "an event failed on every attempt and is among the dead letters",
+			"event", event.ID, "sqlstate", refusal.Code, "constraint", refusal.Constraint)
+	} else {
+		c.logger.WarnContext(ctx, "an event could not be processed and will be tried again",
+			"event", event.ID, "sqlstate", refusal.Code, "constraint", refusal.Constraint)
+	}
+	return false, nil
 }
 
 // series is the key of a row of the time series.
