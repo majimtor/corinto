@@ -130,8 +130,15 @@ it does when the database is absent at start, is in PLAN.md section 3.
   interval of events while the database was accepting them, and up to the
   whole buffer, 50,000 events, if the database was down. The served count
   of that same period dies with it, so the reconciliation does not show
-  the loss. A clean stop flushes first. ADR 0005 names what would remove
-  this limit.
+  the loss. A clean stop flushes first, for at most 3 seconds: what the
+  database has not taken by then is lost like the rest. ADR 0005 names
+  what would remove this limit.
+- **A served count can be written twice.** If the database commits the
+  counts of a flush and its answer is lost, they are written again with
+  the next one, and that day shows more served, and so more lost, than
+  there was. The error is towards declaring loss. The accepted count
+  cannot be written twice: the insert that counts it ignores an event that
+  is already there.
 - **Exactly once ends at the aggregates.** The guarantee of statement 4
   rests on one PostgreSQL transaction. Nothing outside the database is
   told about an event in S1; when something is, that step has its own
@@ -149,6 +156,7 @@ it does when the database is absent at start, is in PLAN.md section 3.
 | --- | --- |
 | Buffer | 50,000 events |
 | Flush | Every second, or every 500 events |
+| Last flush when the process stops | At most 3 seconds |
 | Consumer batch | 500 events |
 | Attempts per event | 5 |
 | Waits between attempts | 1 s, 5 s, 30 s, 2 min |

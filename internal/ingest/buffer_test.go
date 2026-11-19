@@ -60,6 +60,10 @@ func key(day, workspace string, name Counter) string {
 }
 
 func (f *fakeInbox) Count(ctx context.Context, counts []Count) (int, error) {
+	// Like a database, it writes nothing for whoever no longer waits.
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	f.mu.Lock()
 	held, during := f.heldCounts, f.duringCount
 	f.duringCount = nil
@@ -101,6 +105,9 @@ func (f *fakeInbox) Count(ctx context.Context, counts []Count) (int, error) {
 }
 
 func (f *fakeInbox) Accept(ctx context.Context, events []Event) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	f.mu.Lock()
 	held := f.held
 	f.mu.Unlock()
@@ -240,6 +247,7 @@ func running(t *testing.T, into Inbox) (*Buffer, *lockedLog, func()) {
 }
 
 const (
+	messageLeft    = "the process stops with events that the inbox did not take"
 	messageDropped = "the buffer was full and events were dropped"
 	messageFailing = "the inbox did not take what the buffer holds, which waits"
 	messageBack    = "the inbox takes events again"
@@ -248,14 +256,17 @@ const (
 // docs/delivery-semantics.md is the only source of the parameters. Whoever
 // changes one changes it there, and here.
 func TestTheParametersAreTheOnesTheDocumentStates(t *testing.T) {
-	if Capacity != 50_000 || FlushEvery != time.Second || BatchSize != 500 {
-		t.Errorf("a buffer of %d, a flush every %s or every %d events", Capacity, FlushEvery, BatchSize)
+	if Capacity != 50_000 || FlushEvery != time.Second || BatchSize != 500 || LastFlush != 3*time.Second {
+		t.Errorf("a buffer of %d, a flush every %s or every %d events, a last flush of %s", Capacity, FlushEvery, BatchSize, LastFlush)
 	}
 	document, err := os.ReadFile("../../docs/delivery-semantics.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, row := range []string{"| Buffer | 50,000 events |", "| Flush | Every second, or every 500 events |"} {
+	for _, row := range []string{
+		"| Buffer | 50,000 events |", "| Flush | Every second, or every 500 events |",
+		"| Last flush when the process stops | At most 3 seconds |",
+	} {
 		if !strings.Contains(string(document), row) {
 			t.Errorf("docs/delivery-semantics.md does not have the row %q", row)
 		}
@@ -358,6 +369,53 @@ func TestABatchTheInboxDoesNotTakeStaysAndIsTriedAgain(t *testing.T) {
 		// The outage is in the log once, and so is its end.
 		if failing, back := log.lines(t, messageFailing), log.lines(t, messageBack); len(failing) != 1 || len(back) != 1 {
 			t.Errorf("the log says %d times that the inbox fails and %d that it is back, want once each", len(failing), len(back))
+		}
+	})
+}
+
+// A clean stop flushes first: what waits when the process is told to stop
+// is written before Run returns, without waiting for the interval.
+func TestACleanStopFlushesFirst(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		into := &fakeInbox{}
+		buffer, log, stop := running(t, into)
+		record(buffer, 0, 3)
+		buffer.Count(CounterNotFound, noon)
+
+		started := time.Now()
+		stop()
+		if _, _, links := into.said(); !slices.Equal(links, numbered(3)) || time.Since(started) != 0 {
+			t.Errorf("after %s the inbox had the events %v, want the three and no time passed", time.Since(started), links)
+		}
+		if served, notFound := into.counted(key("2026-11-19", workspaceA, counterServed)), into.counted(key("2026-11-19", "", CounterNotFound)); served != 3 || notFound != 1 {
+			t.Errorf("%d responses were counted as served and %d requests as naming no link, want 3 and 1", served, notFound)
+		}
+		if left := log.lines(t, messageLeft); len(left) != 0 {
+			t.Errorf("the log says events were left: %v", left)
+		}
+	})
+}
+
+// The last flush takes LastFlush at the most: a process that stops does
+// not wait for a database that is away, and says what it leaves.
+func TestTheLastFlushIsBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		into := &fakeInbox{held: make(chan struct{})}
+		buffer, log, stop := running(t, into)
+		record(buffer, 0, 3)
+
+		started := time.Now()
+		stop()
+		if elapsed := time.Since(started); elapsed != LastFlush {
+			t.Errorf("the buffer stopped after %s, want %s", elapsed, LastFlush)
+		}
+		left := log.lines(t, messageLeft)
+		if len(left) != 1 || left[0]["events"] != float64(3) || waiting(buffer) != 3 {
+			t.Errorf("the log says %v and %d events wait, want once that 3 were left", left, waiting(buffer))
+		}
+		// A write cut off by the stop is not an outage of the inbox.
+		if failing := log.lines(t, messageFailing); len(failing) != 0 {
+			t.Errorf("the log says the inbox fails: %v", failing)
 		}
 	})
 }

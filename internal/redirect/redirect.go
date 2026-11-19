@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/majimtor/corinto/internal/classify"
+	"github.com/majimtor/corinto/internal/ingest"
 	"github.com/majimtor/corinto/internal/limits"
 	"github.com/majimtor/corinto/internal/resolve"
 )
@@ -66,6 +68,18 @@ type Settings struct {
 	// TrustedProxies are the proxies whose forwarding header is believed
 	// when the address of a client is asked for. Empty trusts none.
 	TrustedProxies []netip.Prefix
+	// Rules say what a request is, from its method and its headers.
+	Rules *classify.Classifier
+	// Events takes what the responses leave behind.
+	Events Recorder
+}
+
+// Recorder takes the event of each response that owes one and counts the
+// requests that owe none. It never makes a response wait: *ingest.Buffer,
+// the one of the process, keeps what it is given in memory.
+type Recorder interface {
+	Record(event ingest.Event)
+	Count(name ingest.Counter, at time.Time)
 }
 
 type handler struct {
@@ -118,6 +132,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// In whole seconds, rounded up: sooner would be refused again.
 		header.Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
 		w.WriteHeader(http.StatusTooManyRequests)
+		h.leave(ctx, func(at time.Time) { h.Events.Count(ingest.CounterRateLimited, at) })
 		return
 	}
 
@@ -138,8 +153,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		// The copy is keyed by identifier, so only a path that is exactly a
 		// slash and an identifier finds anything.
-		if held, known := h.Links.Lookup(strings.TrimPrefix(path, "/")); known && held.Redirects(h.Now()) {
+		held, known := h.Links.Lookup(strings.TrimPrefix(path, "/"))
+		if known && held.Redirects(h.Now()) {
 			found(w, held.Destination)
+			h.leave(ctx, func(at time.Time) { h.Events.Record(h.event(r, held, ingest.OutcomeRedirected, at)) })
 			return
 		}
 		// One answer for a link that does not redirect and for one that
@@ -148,7 +165,40 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		header.Set("Content-Security-Policy", notFoundPolicy)
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write(notFoundPage)
+		// What it leaves behind does say so, to whoever owns the link: a
+		// link that stopped redirecting owes an event, and a path that
+		// names none is only counted.
+		if known {
+			h.leave(ctx, func(at time.Time) { h.Events.Record(h.event(r, held, ingest.OutcomeInactive, at)) })
+		} else {
+			h.leave(ctx, func(at time.Time) { h.Events.Count(ingest.CounterNotFound, at) })
+		}
 	}
+}
+
+// event describes an access to a link in what an event may carry
+// (PLAN.md section 5). The user agent is read here, to be classified, and
+// goes no further; of the referrer only the host does.
+func (h *handler) event(r *http.Request, held resolve.Link, outcome ingest.Outcome, at time.Time) ingest.Event {
+	return ingest.Event{
+		LinkID: held.ID, WorkspaceID: held.WorkspaceID, OccurredAt: at,
+		Outcome: outcome, Method: r.Method,
+		ReferrerHost:   ingest.ReferrerHost(r.Header.Get("Referer")),
+		Classification: h.Rules.Classify(r.Method, r.Header),
+	}
+}
+
+// leave hands over what a response leaves behind, once the response is
+// written. The redirect always answers, and analytics give way: a failure
+// here is logged and changes nothing of what the visitor got.
+func (h *handler) leave(ctx context.Context, behind func(at time.Time)) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			h.Logger.ErrorContext(ctx, "what a response leaves behind could not be handed over",
+				"panic", fmt.Sprint(recovered), "stack", string(debug.Stack()))
+		}
+	}()
+	behind(h.Now())
 }
 
 // lowerASCII lowers the letters A to Z and leaves every other byte as it

@@ -13,7 +13,8 @@ for what they measure, and signed webhooks in both directions.
 In development. The plan and the architecture decisions are written, and
 the first slice is being built: so far, one binary whose `api` command
 serves the links of a workspace, whose `redirect` command follows them and
-whose `operator` command creates workspaces and issues their keys, and the
+keeps an event of each access, and whose `operator` command creates
+workspaces and issues their keys, and the
 local stack that runs them next to their database. This section goes away
 when the first slice ships.
 

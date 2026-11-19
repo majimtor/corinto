@@ -20,6 +20,12 @@ const (
 	// FlushEvery, and the most that one insert carries.
 	BatchSize = 500
 
+	// LastFlush is how long the flush of a process that stops may take.
+	// With the time the requests in flight are waited for, it stays under
+	// the ten seconds after which a container that was told to stop is
+	// killed.
+	LastFlush = 3 * time.Second
+
 	// writeTimeout bounds one write to the inbox. A database that does not
 	// answer must not hold the writer for longer than a few flushes: what
 	// it holds is tried again at the next one.
@@ -148,13 +154,26 @@ func (b *Buffer) Count(name Counter, at time.Time) {
 }
 
 // Run writes what the buffer holds every FlushEvery, and as soon as
-// BatchSize events wait, until its context is done.
+// BatchSize events wait, until its context is done. Then it writes once
+// more, for at most LastFlush: whoever stops a process cancels the context
+// when nothing is handed to the buffer any longer, and waits for Run.
 func (b *Buffer) Run(ctx context.Context) {
 	ticker := time.NewTicker(FlushEvery)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
+			last, cancel := context.WithTimeout(context.WithoutCancel(ctx), LastFlush)
+			defer cancel()
+			b.flush(last)
+			b.mu.Lock()
+			left := len(b.waiting)
+			b.mu.Unlock()
+			if left > 0 {
+				// They are lost, and nothing counts them
+				// (docs/delivery-semantics.md, declared limits).
+				b.logger.WarnContext(ctx, "the process stops with events that the inbox did not take", "events", left)
+			}
 			return
 		case <-ticker.C:
 		case <-b.batch:
