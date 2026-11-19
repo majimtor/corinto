@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -165,6 +166,130 @@ func (l links) list(w http.ResponseWriter, r *http.Request) {
 		page.NextCursor = &next
 	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+// optional is one field of a merge patch, which says three things where a
+// field of a new link says two: it was left out, it is null, or it has a
+// value.
+type optional[T any] struct {
+	sent  bool
+	null  bool
+	value T
+}
+
+// UnmarshalJSON is called only for a field that was sent, null included.
+func (o *optional[T]) UnmarshalJSON(data []byte) error {
+	o.sent = true
+	if string(data) == "null" {
+		o.null = true
+		return nil
+	}
+	return json.Unmarshal(data, &o.value)
+}
+
+// changed returns what a store change takes for a field of text: nil when
+// the field was left out, and an empty value, which removes it, when it is
+// null.
+func changed(field optional[string]) *string {
+	if !field.sent {
+		return nil
+	}
+	// The zero value of a null field is the empty text.
+	return &field.value
+}
+
+func (l links) update(w http.ResponseWriter, r *http.Request) {
+	var sent struct {
+		Destination optional[string] `json:"destination"`
+		Campaign    optional[struct {
+			Source  optional[string] `json:"source"`
+			Medium  optional[string] `json:"medium"`
+			Name    optional[string] `json:"name"`
+			Term    optional[string] `json:"term"`
+			Content optional[string] `json:"content"`
+		}] `json:"campaign"`
+		Title     optional[string]    `json:"title"`
+		Tags      optional[[]string]  `json:"tags"`
+		ExpiresAt optional[time.Time] `json:"expires_at"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+		// As in a new link: the contract let it through and it cannot be
+		// read.
+		writeRejected(w, rejection{In: inBody, Field: "", Code: ReasonInvalid})
+		return
+	}
+	change := link.Change{Destination: changed(sent.Destination), Title: changed(sent.Title)}
+	switch campaign := sent.Campaign; {
+	case campaign.null:
+		// No campaign at all: every parameter is removed.
+		removed := ""
+		change.Campaign = link.CampaignChange{
+			Source: &removed, Medium: &removed, Name: &removed, Term: &removed, Content: &removed,
+		}
+	case campaign.sent:
+		change.Campaign = link.CampaignChange{
+			Source: changed(campaign.value.Source), Medium: changed(campaign.value.Medium),
+			Name: changed(campaign.value.Name), Term: changed(campaign.value.Term),
+			Content: changed(campaign.value.Content),
+		}
+	}
+	if sent.Tags.sent {
+		// A null leaves no tags, like an empty list.
+		tags := sent.Tags.value
+		if tags == nil {
+			tags = []string{}
+		}
+		change.Tags = &tags
+	}
+	switch expiry := sent.ExpiresAt; {
+	case expiry.null:
+		change.NoExpiry = true
+	case expiry.sent:
+		// The rule of a new link: a client does not make a link expire in
+		// the past. To stop a link it disables it.
+		if !expiry.value.After(l.now()) {
+			writeRejected(w, rejection{In: inBody, Field: "/expires_at", Code: ReasonInThePast})
+			return
+		}
+		change.ExpiresAt = &expiry.value
+	}
+
+	updated, err := l.store.Update(r.Context(), principalOf(r.Context()).WorkspaceID, r.PathValue("id"), change)
+	if err != nil {
+		refuse(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, show(updated))
+}
+
+func (l links) disable(w http.ResponseWriter, r *http.Request) {
+	l.switched(w, r, l.store.Disable)
+}
+
+func (l links) enable(w http.ResponseWriter, r *http.Request) {
+	l.switched(w, r, l.store.Enable)
+}
+
+// switched answers the two operations that move a link between the states
+// its workspace controls.
+func (l links) switched(
+	w http.ResponseWriter, r *http.Request,
+	move func(ctx context.Context, workspaceID, id string) (link.Link, error),
+) {
+	moved, err := move(r.Context(), principalOf(r.Context()).WorkspaceID, r.PathValue("id"))
+	if err != nil {
+		refuse(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, show(moved))
+}
+
+func (l links) delete(w http.ResponseWriter, r *http.Request) {
+	if err := l.store.Delete(r.Context(), principalOf(r.Context()).WorkspaceID, r.PathValue("id")); err != nil {
+		refuse(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // cursor writes the position after a link as the opaque text a client sends

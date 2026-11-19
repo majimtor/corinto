@@ -455,7 +455,10 @@ func TestALinkCreatedThroughTheAPIIsTheOneTheOperatorBlocks(t *testing.T) {
 			t.Fatal(err)
 		}
 		request.Header.Set("Authorization", "Bearer "+credential)
-		if body != "" {
+		switch {
+		case body != "" && method == http.MethodPatch:
+			request.Header.Set("Content-Type", "application/merge-patch+json")
+		case body != "":
 			request.Header.Set("Content-Type", "application/json")
 		}
 		response, err := client.Do(request)
@@ -463,9 +466,15 @@ func TestALinkCreatedThroughTheAPIIsTheOneTheOperatorBlocks(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = response.Body.Close() }()
-		var answered map[string]any
-		if err := json.NewDecoder(response.Body).Decode(&answered); err != nil {
+		read, err := io.ReadAll(response.Body)
+		if err != nil {
 			t.Fatal(err)
+		}
+		var answered map[string]any
+		if len(read) > 0 {
+			if err := json.Unmarshal(read, &answered); err != nil {
+				t.Fatal(err)
+			}
 		}
 		return response.StatusCode, answered
 	}
@@ -478,6 +487,18 @@ func TestALinkCreatedThroughTheAPIIsTheOneTheOperatorBlocks(t *testing.T) {
 	id, _ := created["id"].(string)
 	identifier, _ := created["identifier"].(string)
 
+	// The workspace changes its link and switches it off and on.
+	if status, changed := call(http.MethodPatch, "/v1/links/"+id, `{"title":"Launch","campaign":{"medium":"email"}}`); status != http.StatusOK ||
+		changed["title"] != "Launch" || changed["resolved_destination"] != "https://example.com/landing?utm_source=newsletter&utm_medium=email" {
+		t.Errorf("PATCH of the link = %d %v", status, changed)
+	}
+	if status, disabled := call(http.MethodPost, "/v1/links/"+id+"/disable", ""); status != http.StatusOK || disabled["state"] != "disabled" {
+		t.Errorf("disable = %d %v", status, disabled)
+	}
+	if status, enabled := call(http.MethodPost, "/v1/links/"+id+"/enable", ""); status != http.StatusOK || enabled["state"] != "active" {
+		t.Errorf("enable = %d %v", status, enabled)
+	}
+
 	blocked := printed(t, env, "block-link", "--identifier", identifier)
 	if blocked["id"] != id || blocked["workspace_id"] != workspaceID {
 		t.Errorf("block-link printed %v, want the link %s of the workspace %s", blocked, id, workspaceID)
@@ -487,6 +508,16 @@ func TestALinkCreatedThroughTheAPIIsTheOneTheOperatorBlocks(t *testing.T) {
 	}
 	if status, listed := call(http.MethodGet, "/v1/links", ""); status != http.StatusOK || len(listed["items"].([]any)) != 1 {
 		t.Errorf("GET /v1/links = %d %v, want the one link", status, listed)
+	}
+	// Once blocked, the workspace can only read it and delete it.
+	if status, refused := call(http.MethodPatch, "/v1/links/"+id, `{"title":"Again"}`); status != http.StatusConflict || refused["code"] != "link_blocked" {
+		t.Errorf("PATCH of the blocked link = %d %v, want 409 link_blocked", status, refused)
+	}
+	if status, _ := call(http.MethodDelete, "/v1/links/"+id, ""); status != http.StatusNoContent {
+		t.Errorf("DELETE of the blocked link = %d, want 204", status)
+	}
+	if status, _ := call(http.MethodGet, "/v1/links/"+id, ""); status != http.StatusNotFound {
+		t.Errorf("GET of the deleted link = %d, want 404", status)
 	}
 
 	cancel()

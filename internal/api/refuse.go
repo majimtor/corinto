@@ -55,6 +55,8 @@ func refuse(w http.ResponseWriter, r *http.Request, err error) {
 		writeProblem(w, http.StatusConflict, CodeAliasTaken, "The alias is already in use.")
 	case errors.Is(err, link.ErrQuotaExceeded):
 		writeProblem(w, http.StatusConflict, CodeQuotaExceeded, "The workspace holds as many links as its quota allows.")
+	case errors.Is(err, link.ErrLinkBlocked):
+		writeProblem(w, http.StatusConflict, CodeLinkBlocked, "The operator blocked the link. It can be read and deleted.")
 	case errors.Is(err, link.ErrWorkspaceBlocked), errors.Is(err, link.ErrWorkspaceNotFound):
 		// The workspace was blocked after the key was resolved, and its
 		// keys were revoked with it: the next request would say this.

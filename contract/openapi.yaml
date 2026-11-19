@@ -200,12 +200,7 @@ paths:
           $ref: "#/components/responses/Problem"
   /v1/links/{id}:
     parameters:
-      - name: id
-        in: path
-        required: true
-        description: The `id` of the link.
-        schema:
-          type: string
+      - $ref: "#/components/parameters/LinkId"
     get:
       operationId: getLink
       summary: Read a link.
@@ -233,6 +228,139 @@ paths:
           $ref: "#/components/responses/Problem"
         "404":
           $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateLink
+      summary: Change a link.
+      description: >-
+        Changes what the body names and nothing else, as a JSON Merge Patch
+        (RFC 7396): a field that is left out stays as it is, and a null
+        removes what the link had. The identifier of a link never changes.
+        A request that leaves the link as it was is not an error.
+      security:
+        - apiKey: [links:write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/LinkChange"
+      responses:
+        "200":
+          description: The link after the change.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Link"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/LinkBlocked"
+        "415":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteLink
+      summary: Delete a link.
+      description: >-
+        Erases what the link led to and what described it, for good. Its
+        short identifier is never issued again. A blocked link can be
+        deleted.
+      security:
+        - apiKey: [links:write]
+      responses:
+        "204":
+          description: The link is deleted.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /v1/links/{id}/disable:
+    parameters:
+      - $ref: "#/components/parameters/LinkId"
+    post:
+      operationId: disableLink
+      summary: Stop a link from redirecting.
+      description: >-
+        The link stops redirecting until it is enabled again. Disabling a
+        link that is already disabled changes nothing and is not an error.
+      security:
+        - apiKey: [links:write]
+      responses:
+        "200":
+          $ref: "#/components/responses/Link"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/LinkBlocked"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /v1/links/{id}/enable:
+    parameters:
+      - $ref: "#/components/parameters/LinkId"
+    post:
+      operationId: enableLink
+      summary: Let a disabled link redirect again.
+      description: >-
+        Enabling a link that is already active changes nothing and is not
+        an error.
+      security:
+        - apiKey: [links:write]
+      responses:
+        "200":
+          $ref: "#/components/responses/Link"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/LinkBlocked"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
@@ -270,6 +398,14 @@ components:
         An API key of a workspace, in the `Authorization` header. Each
         operation names the scope it requires, or none when any valid key
         will do.
+  parameters:
+    LinkId:
+      name: id
+      in: path
+      required: true
+      description: The `id` of the link.
+      schema:
+        type: string
   headers:
     RequestId:
       description: >-
@@ -281,6 +417,26 @@ components:
   responses:
     Problem:
       description: An error.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Link:
+      description: The link.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Link"
+    LinkBlocked:
+      description: >-
+        The operator blocked the link (`link_blocked`). Its workspace can
+        still read it and delete it, and nothing else.
       headers:
         X-Request-Id:
           $ref: "#/components/headers/RequestId"
@@ -483,6 +639,56 @@ components:
       type: string
       minLength: 1
       maxLength: 200
+    LinkChange:
+      description: >-
+        What changes in a link. A field that is left out stays as it is; a
+        null removes what the link had.
+      type: object
+      additionalProperties: false
+      properties:
+        destination:
+          description: As in a new link. A link always has one, so it cannot be null.
+          type: string
+          minLength: 1
+          maxLength: 2048
+        campaign:
+          description: >-
+            The parameters named change and the others stay. A null
+            parameter is removed; a null campaign removes them all.
+          type: [object, "null"]
+          additionalProperties: false
+          properties:
+            source:
+              $ref: "#/components/schemas/CampaignValueChange"
+            medium:
+              $ref: "#/components/schemas/CampaignValueChange"
+            name:
+              $ref: "#/components/schemas/CampaignValueChange"
+            term:
+              $ref: "#/components/schemas/CampaignValueChange"
+            content:
+              $ref: "#/components/schemas/CampaignValueChange"
+        title:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 200
+        tags:
+          description: The tags the link has from now on. A null leaves none.
+          type: [array, "null"]
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+        expires_at:
+          description: Later than the moment of the request, or null for a link that does not expire.
+          type: [string, "null"]
+          format: date-time
+    CampaignValueChange:
+      type: [string, "null"]
+      minLength: 1
+      maxLength: 200
     LinkPage:
       type: object
       required: [items, next_cursor]
@@ -539,6 +745,7 @@ components:
             - unsupported_media_type
             - alias_taken
             - quota_exceeded
+            - link_blocked
         errors:
           type: array
           description: One entry per field of the request that was rejected.
