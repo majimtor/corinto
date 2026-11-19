@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "prefetch_headers": ["Sec-Purpose", "Purpose", "X-Moz"],
+  "automation_tags": ["http-library", "browser-automation"],
+  "preview_tags": ["social-preview"],
+  "browsers": [
+    {"value": "edge", "any": ["Edg/", "EdgA/", "EdgiOS/", "Edge/"]},
+    {"value": "opera", "any": ["OPR/", "OPiOS/", "Opera"]},
+    {"value": "samsung_internet", "any": ["SamsungBrowser/"]},
+    {"value": "firefox", "any": ["Firefox/", "FxiOS/"]},
+    {"value": "chrome", "any": ["Chrome/", "CriOS/", "Chromium/"]},
+    {"value": "safari", "any": ["Safari/"]}
+  ],
+  "devices": [
+    {"value": "tablet", "any": ["iPad", "Kindle", "Silk/"]},
+    {"value": "tablet", "any": ["Android"], "none": ["Mobile"]},
+    {"value": "mobile", "any": ["Mobi", "iPhone", "iPod", "Android", "Windows Phone"]},
+    {"value": "desktop", "any": ["Windows NT", "Macintosh", "X11", "CrOS", "Linux"]}
+  ]
+}
