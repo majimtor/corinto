@@ -27,6 +27,9 @@ func TestTheOperatorRefusesWrongUsageBeforeItReadsItsEnvironment(t *testing.T) {
 		{"a revocation without a key", []string{"revoke-key"}, "revoke-key needs --key"},
 		{"a block without a link", []string{"block-link"}, "block-link needs --identifier"},
 		{"a block without a workspace", []string{"block-workspace"}, "block-workspace needs --workspace"},
+		{"dead letters without saying which", []string{"retry-dead-letters"}, "retry-dead-letters needs --event or --all, and not both"},
+		{"one dead letter and all of them", []string{"retry-dead-letters", "--event", "e", "--all"}, "retry-dead-letters needs --event or --all, and not both"},
+		{"a dead letter named without its option", []string{"retry-dead-letters", "e"}, `"e" is not an option`},
 		{"a request for help", []string{"issue-key", "--help"}, "help"},
 	}
 	for _, c := range cases {
@@ -79,12 +82,17 @@ func TestBlockLinkNamesEveryMissingVariable(t *testing.T) {
 }
 
 func TestTheOtherActionsDoNotAskForTheRedirectDomain(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	args := []string{"operator", "block-workspace", "--workspace", "00000000-0000-7000-8000-000000000000"}
-	if code := run(t.Context(), args, environmentOf(nil), &stdout, &stderr); code != exitFailure {
-		t.Errorf("exit code = %d, want %d", code, exitFailure)
-	}
-	if strings.Contains(stderr.String(), "CORINTO_REDIRECT_DOMAIN") {
-		t.Errorf("block-workspace asks for the redirect domain: %q", stderr.String())
+	for _, args := range [][]string{
+		{"operator", "block-workspace", "--workspace", "00000000-0000-7000-8000-000000000000"},
+		{"operator", "retry-dead-letters", "--all"},
+		{"operator", "retry-dead-letters", "--event", "00000000-0000-7000-8000-000000000000"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(t.Context(), args, environmentOf(nil), &stdout, &stderr); code != exitFailure {
+			t.Errorf("%s: exit code = %d, want %d", args[1], code, exitFailure)
+		}
+		if !strings.Contains(stderr.String(), "CORINTO_DATABASE_URL") || strings.Contains(stderr.String(), "CORINTO_REDIRECT_DOMAIN") {
+			t.Errorf("%s does not ask for the database alone: %q", args[1], stderr.String())
+		}
 	}
 }
