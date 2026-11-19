@@ -4,10 +4,13 @@ package postgrestest
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/moby/moby/client"
 	"github.com/testcontainers/testcontainers-go"
@@ -106,5 +109,124 @@ func TestTheContainerOfARunThatIsGoneIsRemovedAndNoOther(t *testing.T) {
 	// says so.
 	if strings.Contains(notes.String(), "was not removed") {
 		t.Errorf("a removal failed: %s", notes.String())
+	}
+}
+
+// Several test binaries start at once and find the same containers. One of
+// them removes each, and the others are told by Docker that its removal is
+// already in progress, or that it does not exist: for them that is not a
+// failure, and when they go on the container is not there.
+func TestRunsThatStartAtOnceRemoveTheSameContainersWithoutFailing(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+	image, err := imageOfTheLocalStack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	label := owner(deadProcess(t))
+	var left []string
+	for range 3 {
+		container, err := testcontainers.Run(ctx, image,
+			testcontainers.WithEntrypoint("sleep"), testcontainers.WithCmd("300"),
+			testcontainers.WithLabels(map[string]string{ownerLabel: label}))
+		t.Cleanup(func() { _ = testcontainers.TerminateContainer(container, testcontainers.StopTimeout(0)) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		left = append(left, container.GetContainerID())
+	}
+
+	const runs = 8
+	notes := make([]bytes.Buffer, runs)
+	begin := make(chan struct{})
+	var wait sync.WaitGroup
+	for run := range runs {
+		wait.Go(func() {
+			<-begin
+			removeOrphans(ctx, &notes[run])
+		})
+	}
+	close(begin)
+	wait.Wait()
+
+	// Every run has gone on, and the containers are not there.
+	still := labelled(t, label)
+	for _, id := range left {
+		if still[id] {
+			t.Errorf("the container %.12s is still there", id)
+		}
+	}
+	removed := 0
+	for run := range notes {
+		if strings.Contains(notes[run].String(), "was not removed") {
+			t.Errorf("run %d says a removal failed: %s", run, notes[run].String())
+		}
+		removed += strings.Count(notes[run].String(), "removed a container left by an earlier run ("+label+")")
+	}
+	// A container is removed by one run at the most. Another test binary
+	// of this same go test may have taken some first.
+	if removed > len(left) {
+		t.Errorf("%d removals of %d containers", removed, len(left))
+	}
+}
+
+// A run that could not remove a container goes on when the container is
+// not there, and not before; and it does not wait for ever for one that
+// stays.
+func TestAContainerIsGoneOnlyWhenItIsNotThere(t *testing.T) {
+	ctx := t.Context()
+	t.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+	image, err := imageOfTheLocalStack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Labelled as of a run that is alive, so that no other test binary
+	// takes it away.
+	container, err := testcontainers.Run(ctx, image,
+		testcontainers.WithEntrypoint("sleep"), testcontainers.WithCmd("300"),
+		testcontainers.WithLabels(map[string]string{ownerLabel: owner(os.Getppid())}))
+	t.Cleanup(func() { _ = testcontainers.TerminateContainer(container, testcontainers.StopTimeout(0)) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := container.GetContainerID()
+	docker, err := testcontainers.NewDockerClientWithOpts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = docker.Close() }()
+
+	// While it is there it is not gone, for as long as the caller waits.
+	short, cancel := context.WithTimeout(ctx, time.Second)
+	started := time.Now()
+	stays := gone(short, docker, id)
+	cancel()
+	if elapsed := time.Since(started); stays || elapsed < time.Second {
+		t.Fatalf("a container that is there is gone = %t after %s; want false after the second the caller gave", stays, elapsed)
+	}
+
+	// Somebody else removes it while a run waits.
+	waited := make(chan bool, 1)
+	go func() { waited <- gone(ctx, docker, id) }()
+	select {
+	case early := <-waited:
+		t.Fatalf("gone = %t before the container was removed", early)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if _, err := docker.ContainerRemove(ctx, id, client.ContainerRemoveOptions{Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case left := <-waited:
+		if !left {
+			t.Error("a container that was removed is not gone")
+		}
+	case <-time.After(removalWait):
+		t.Error("the run that waited never saw that the container was removed")
+	}
+	// One that was never there is gone at once.
+	started = time.Now()
+	if !gone(ctx, docker, "0000000000000000000000000000000000000000000000000000000000000000") || time.Since(started) > time.Second {
+		t.Errorf("a container that does not exist is not gone at once (%s)", time.Since(started))
 	}
 }
