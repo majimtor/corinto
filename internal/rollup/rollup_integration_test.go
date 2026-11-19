@@ -50,7 +50,7 @@ func newStage(t *testing.T) *stage {
 		t.Fatal(err)
 	}
 	s := &stage{
-		pool: pool, consumer: NewConsumer(pool),
+		pool: pool, consumer: NewConsumer(pool, slog.New(slog.NewJSONHandler(io.Discard, nil))),
 		inbox: ingest.NewStore(pool, slog.New(slog.NewJSONHandler(io.Discard, nil))),
 	}
 	links := link.NewStore(pool, "go.example.dev", rand.Reader)

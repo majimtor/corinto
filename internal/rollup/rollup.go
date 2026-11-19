@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"log/slog"
 	"maps"
 	"slices"
 	"time"
@@ -33,6 +34,10 @@ const (
 	// NoReferrer is the value of the clicks that named no referrer.
 	NoReferrer = "(none)"
 
+	// PollEvery is how often a consumer asks for pending events when the
+	// last time it found less than a batch.
+	PollEvery = time.Second
+
 	// batchTimeout bounds the transaction of a batch, so that a database
 	// that hangs is a failed batch and not a consumer that stopped.
 	batchTimeout = 10 * time.Second
@@ -54,12 +59,51 @@ const (
 // Consumer takes pending events from the inbox and adds them to the
 // aggregates. Several can run at once, in one process or in many.
 type Consumer struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	logger *slog.Logger
 }
 
 // NewConsumer returns a consumer over a pool.
-func NewConsumer(pool *pgxpool.Pool) *Consumer {
-	return &Consumer{pool: pool}
+func NewConsumer(pool *pgxpool.Pool, logger *slog.Logger) *Consumer {
+	return &Consumer{pool: pool, logger: logger}
+}
+
+// Run processes the inbox until its context is done: a batch, another at
+// once when that one was whole, and otherwise the next one PollEvery
+// later. A batch that fails is pending and is tried again like any other.
+func (c *Consumer) Run(ctx context.Context) {
+	run(ctx, c.Batch, c.logger)
+}
+
+// run asks for batches. It is apart from Run so that a test can say what
+// each batch finds.
+func run(ctx context.Context, batch func(context.Context) (int, error), logger *slog.Logger) {
+	ticker := time.NewTicker(PollEvery)
+	defer ticker.Stop()
+	failing := false
+	for {
+		processed, err := batch(ctx)
+		switch {
+		case err != nil && ctx.Err() != nil:
+			// The process is stopping: the batch was cut off, not refused,
+			// and its events are pending.
+		case err != nil && !failing:
+			logger.WarnContext(ctx, "a batch of the inbox could not be processed, and its events stay pending", "error", err.Error())
+		case err == nil && failing:
+			logger.InfoContext(ctx, "the inbox is being processed again")
+		}
+		failing = err != nil
+		// A whole batch says that more may wait. One that failed
+		// processed nothing, and waits for the interval like any other.
+		if processed == BatchSize {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // Batch takes up to BatchSize pending events, adds them to the aggregates

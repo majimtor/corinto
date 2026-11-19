@@ -13,8 +13,9 @@ for what they measure, and signed webhooks in both directions.
 In development. The plan and the architecture decisions are written, and
 the first slice is being built: so far, one binary whose `api` command
 serves the links of a workspace, whose `redirect` command follows them and
-keeps an event of each access, and whose `operator` command creates
-workspaces and issues their keys, and the
+keeps an event of each access, whose `worker` command adds those events to
+the figures of each link, and whose `operator` command creates workspaces
+and issues their keys, and the
 local stack that runs them next to their database. This section goes away
 when the first slice ships.
 
@@ -33,10 +34,11 @@ when the first slice ships.
 
 ## Run it
 
-One command starts PostgreSQL 18, applies the migrations and starts two
-processes: `api`, which serves the management API on port 8080, and
-`redirect`, which answers on the host of the short links on port 8082.
-Their health endpoints are on ports 8081 and 8083:
+One command starts PostgreSQL 18, applies the migrations and starts three
+processes: `api`, which serves the management API on port 8080,
+`redirect`, which answers on the host of the short links on port 8082, and
+`worker`, which adds what `redirect` serves to the figures of each link.
+Their health endpoints are on ports 8081, 8083 and 8084:
 
 ```sh
 make up
