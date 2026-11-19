@@ -205,8 +205,10 @@ string, a cookie, a fingerprint, or any identifier of a click or a visitor
 **Aggregation.** A time series per link, hour (UTC), outcome and class;
 breakdowns
 per link and UTC day, one dimension at a time: referrer host, device class
-and browser family. The referrer host comes from the requester: at most
-100 distinct hosts per link and day, the rest under `(other)`, always
+and browser family. The breakdowns count estimated human clicks and no
+other request. The referrer host comes from the requester: at most
+100 distinct hosts per link and day, the rest under `(other)`, and the
+clicks that name no referrer under `(none)`, always
 rendered as text. The panel shows times in UTC and says so. Raw events are
 kept 30 days and aggregates 13 months; a daily job deletes what is due
 and shows when it last ran (ADR 0010). An analytical store enters only if a

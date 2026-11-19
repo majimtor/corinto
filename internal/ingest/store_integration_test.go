@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -588,9 +589,10 @@ func (g *gate) Count(ctx context.Context, counts []Count) (int, error) {
 	return g.Inbox.Count(ctx, counts)
 }
 
-// The first equality of the reconciliation, for every UTC day and every
-// workspace: served = accepted + lost. Events are dropped on purpose, by
-// serving more than the buffer holds while the database is away.
+// The equalities of the reconciliation, for every UTC day and every
+// workspace: served = accepted + lost, and accepted = processed + pending.
+// Events are dropped on purpose, by serving more than the buffer holds
+// while the database is away, and a part of the accepted ones is processed.
 func TestTheReconciliationAddsUp(t *testing.T) {
 	s := newStage(t)
 	into := &gate{Inbox: s.store}
@@ -648,5 +650,220 @@ func TestTheReconciliationAddsUp(t *testing.T) {
 	// Every event has an identifier of its own second.
 	if finer := s.number(t, `SELECT count(*) FROM event_inbox WHERE uuid_extract_timestamp(id) <> occurred_at`); finer != 0 {
 		t.Errorf("%d events have an identifier that does not say the second of the event", finer)
+	}
+
+	// A consumer processes the oldest 20,000 and the rest stay pending.
+	tx, err := s.pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(t.Context())) }()
+	taken, err := Take(t.Context(), tx, 20_000)
+	if err != nil || len(taken) != 20_000 {
+		t.Fatalf("Take returned %d events with the error %v", len(taken), err)
+	}
+	if err := MarkProcessed(t.Context(), tx, taken); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var processedInAll int64
+	for _, of := range []struct{ day, workspace string }{
+		{"2026-11-19", s.acme}, {"2026-11-20", s.acme}, {"2026-11-20", s.globex}, {"2026-11-19", s.globex},
+	} {
+		accepted := s.counter(t, of.day, of.workspace, "accepted")
+		processed := s.counter(t, of.day, of.workspace, counterProcessed)
+		pending := s.number(t,
+			`SELECT count(*) FROM event_inbox
+			  WHERE workspace_id = $1::uuid AND (occurred_at AT TIME ZONE 'UTC')::date = $2::date AND processed_at IS NULL`,
+			of.workspace, of.day)
+		if accepted != processed+pending {
+			t.Errorf("on %s the workspace %s has %d accepted, %d processed and %d pending", of.day, of.workspace, accepted, processed, pending)
+		}
+		processedInAll += processed
+	}
+	if processedInAll != 20_000 {
+		t.Errorf("%d events are counted as processed, want 20,000", processedInAll)
+	}
+}
+
+// The events that wait are found through an index of their own, however
+// many have been processed: it is what a consumer asks for every second.
+func TestPendingEventsAreFoundThroughTheirIndex(t *testing.T) {
+	s := newStage(t)
+	tx, err := s.pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(t.Context())) }()
+	// An empty table is read whole whatever its indexes are. Without that
+	// way out, the plan says which index can answer the question.
+	if _, err := tx.Exec(t.Context(), `SET LOCAL enable_seqscan = off`); err != nil {
+		t.Fatal(err)
+	}
+	var plan string
+	err = tx.QueryRow(t.Context(),
+		`EXPLAIN (FORMAT JSON) SELECT id FROM event_inbox WHERE processed_at IS NULL
+		  ORDER BY accepted_at, id LIMIT 500 FOR UPDATE SKIP LOCKED`).Scan(&plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan, `"Index Name": "event_inbox_pending_idx"`) || strings.Contains(plan, `"Node Type": "Sort"`) {
+		t.Errorf("pending events are not read in their order through event_inbox_pending_idx: %s", plan)
+	}
+	// The index has the events that wait and no others: it stays small
+	// while the inbox grows.
+	var definition string
+	if err := tx.QueryRow(t.Context(), `SELECT indexdef FROM pg_indexes WHERE indexname = 'event_inbox_pending_idx'`).Scan(&definition); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(definition, "WHERE (processed_at IS NULL)") {
+		t.Errorf("the index of the pending events is %q", definition)
+	}
+}
+
+// byID orders events as the inbox gives the ones accepted together.
+func byID(events []Event) []Event {
+	ordered := slices.Clone(events)
+	slices.SortFunc(ordered, func(a, b Event) int { return strings.Compare(a.ID, b.ID) })
+	return ordered
+}
+
+// Statement 4: pending events are taken the oldest first, an event that a
+// consumer holds is not given to another, and one that is given back is
+// pending again.
+func TestPendingEventsAreTakenOldestFirstAndByOneConsumer(t *testing.T) {
+	s := newStage(t)
+	first := s.events(noon, 3)
+	first[0].Outcome, first[0].Method, first[0].ReferrerHost = OutcomeInactive, "HEAD", "news.example.com"
+	first[0].Classification = classify.Classification{
+		Class: classify.ClassAutomation, Rule: "automation:head", Version: 3,
+		Device: classify.DeviceMobile, Browser: classify.BrowserSafari,
+	}
+	// Accepted later, though they occurred before.
+	second := s.events(noon.Add(-time.Hour), 3)
+	for _, batch := range [][]Event{first, second} {
+		if settled, err := s.store.Accept(t.Context(), batch); err != nil || settled != 3 {
+			t.Fatalf("Accept settled %d events with the error %v", settled, err)
+		}
+	}
+	inOrder := append(byID(first), byID(second)...)
+
+	begin := func() pgx.Tx {
+		t.Helper()
+		tx, err := s.pool.Begin(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = tx.Rollback(context.WithoutCancel(t.Context())) })
+		return tx
+	}
+	take := func(tx pgx.Tx, limit int) []Event {
+		t.Helper()
+		// Taking does not wait for what another holds: if it did, this
+		// would end with the time it is given.
+		quick, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		taken, err := Take(quick, tx, limit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return taken
+	}
+	one, another, late := begin(), begin(), begin()
+	// Each event comes back as it was accepted, whole.
+	if taken := take(one, 2); !slices.Equal(taken, inOrder[:2]) {
+		t.Errorf("the first consumer took %+v, want the two oldest, %+v", taken, inOrder[:2])
+	}
+	if taken := take(another, 10); !slices.Equal(taken, inOrder[2:]) {
+		t.Errorf("the second consumer took %+v, want the four that the first does not hold, %+v", taken, inOrder[2:])
+	}
+	if taken := take(late, 10); len(taken) != 0 {
+		t.Errorf("a third consumer took %d events that the others hold", len(taken))
+	}
+	// Taking marks nothing: the events are pending until somebody says so.
+	if err := one.Rollback(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if taken := take(late, 10); !slices.Equal(taken, inOrder[:2]) {
+		t.Errorf("after the first consumer stopped, the third took %+v, want the two it held", taken)
+	}
+}
+
+// Statement 4: marking events as processed and counting them is part of
+// the transaction that took them, and happens with it or not at all.
+func TestProcessedEventsAreCountedOnTheDayOfTheirAccess(t *testing.T) {
+	// The day is the one of UTC wherever the process runs: here, eight
+	// hours behind it.
+	local := time.Local
+	time.Local = time.FixedZone("UTC-8", -8*60*60)
+	t.Cleanup(func() { time.Local = local })
+	s := newStage(t)
+	events := append(s.events(noon, 3), s.events(noon.Add(24*time.Hour), 2)...)
+	other := s.event(noon)
+	other.LinkID, other.WorkspaceID = s.globexLink, s.globex
+	events = append(events, other)
+	if settled, err := s.store.Accept(t.Context(), events); err != nil || settled != 6 {
+		t.Fatalf("Accept settled %d events with the error %v", settled, err)
+	}
+	pending := func() int64 {
+		return s.number(t, `SELECT count(*) FROM event_inbox WHERE processed_at IS NULL`)
+	}
+	process := func(commit bool) []Event {
+		t.Helper()
+		tx, err := s.pool.Begin(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(context.WithoutCancel(t.Context())) }()
+		taken, err := Take(t.Context(), tx, 4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := MarkProcessed(t.Context(), tx, taken); err != nil {
+			t.Fatal(err)
+		}
+		if commit {
+			if err := tx.Commit(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return taken
+	}
+	counted := func() int64 {
+		return s.number(t, `SELECT coalesce(sum(value), 0) FROM pipeline_counters WHERE name = 'processed'`)
+	}
+
+	// Not committed: nothing is processed and nothing is counted.
+	process(false)
+	if pending() != 6 || counted() != 0 {
+		t.Fatalf("after a consumer that did not commit, %d events are pending and %d counted as processed", pending(), counted())
+	}
+	first := process(true)
+	if pending() != 2 || counted() != 4 {
+		t.Fatalf("after a batch of four, %d events are pending and %d counted as processed", pending(), counted())
+	}
+	process(true)
+	for _, want := range []struct {
+		day, workspace string
+		value          int64
+	}{{"2026-11-19", s.acme, 3}, {"2026-11-20", s.acme, 2}, {"2026-11-19", s.globex, 1}, {"2026-11-20", s.globex, 0}} {
+		if got := s.counter(t, want.day, want.workspace, counterProcessed); got != want.value {
+			t.Errorf("on %s the workspace %s has %d events counted as processed, want %d", want.day, want.workspace, got, want.value)
+		}
+	}
+	if pending() != 0 || s.number(t, `SELECT count(*) FROM event_inbox WHERE processed_at < accepted_at`) != 0 {
+		t.Errorf("%d events are pending, or one was processed before it was accepted", pending())
+	}
+
+	// What is not pending cannot be marked again: it would be counted twice.
+	tx, err := s.pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(t.Context())) }()
+	if err := MarkProcessed(t.Context(), tx, first); err == nil {
+		t.Error("events that were already processed were marked again")
 	}
 }
