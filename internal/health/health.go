@@ -50,8 +50,9 @@ func Handler(ready Check, logger *slog.Logger) http.Handler {
 }
 
 // Serve answers the health endpoints on listener until ctx is cancelled, and
-// then lets the probes in flight finish. The server of the API stops in the
-// same way, in its own package: the two share a shape and no value.
+// then lets the probes in flight finish. The API and the host of the short
+// links stop in the same way, each in its own package: the three share a
+// shape and no value.
 func Serve(ctx context.Context, listener net.Listener, ready Check, logger *slog.Logger) error {
 	server := &http.Server{
 		Handler:           Handler(ready, logger),

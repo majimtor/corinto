@@ -25,6 +25,8 @@ const usageText = `usage: corinto <command>
 commands:
   api       run the api process: the management API on one port and its
             health endpoints on another
+  redirect  run the redirect process: the host of the short links on one
+            port and its health endpoints on another
   migrate   apply the migrations the database does not have yet, and exit
   operator  act on the database as the operator; run it without an action
             to see the actions
@@ -61,6 +63,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		return exitUsage
 	case args[0] == "api":
 		err = runAPI(ctx, getenv, logger)
+	case args[0] == "redirect":
+		err = runRedirect(ctx, getenv, logger)
 	case args[0] == "migrate":
 		err = runMigrate(ctx, getenv, logger)
 	default:

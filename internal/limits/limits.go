@@ -63,3 +63,25 @@ const (
 	// database answer for every guess.
 	APIFailedAuthenticationsPerMinute = 10
 )
+
+// What the host of the short links allows a request. A request to it is a
+// line and a few headers, and its answer is smaller still: whatever takes
+// longer or sends more is not a visitor following a link.
+const (
+	// RedirectReadHeaderTimeout is how long a client has to send the
+	// headers of a request.
+	RedirectReadHeaderTimeout = 5 * time.Second
+	// RedirectReadTimeout is how long a client has to send a whole request.
+	// No request to this host has a body worth waiting for.
+	RedirectReadTimeout = 5 * time.Second
+	// RedirectWriteTimeout is how long the server has to answer. It is also
+	// how long requests in flight are waited for when the process stops.
+	RedirectWriteTimeout = 5 * time.Second
+	// RedirectIdleTimeout is how long a connection is kept open between two
+	// requests.
+	RedirectIdleTimeout = 30 * time.Second
+	// RedirectMaxHeaderBytes is the most a request line and its headers
+	// take. A browser sends a few hundred bytes; a path of a megabyte is
+	// not a short link.
+	RedirectMaxHeaderBytes = 16 << 10
+)

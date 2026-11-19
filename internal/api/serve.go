@@ -11,8 +11,9 @@ import (
 )
 
 // Serve answers the API on listener until ctx is cancelled, and then lets
-// the requests in flight finish. The health endpoints stop in the same way,
-// in their own package: the two share a shape and no value.
+// the requests in flight finish. The health endpoints and the host of the
+// short links stop in the same way, each in its own package: the three
+// share a shape and no value.
 func Serve(ctx context.Context, listener net.Listener, handler http.Handler, logger *slog.Logger) error {
 	server := &http.Server{
 		Handler:           handler,

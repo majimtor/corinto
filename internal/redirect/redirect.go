@@ -73,11 +73,12 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// between this host and the visitor keeps an answer.
 	header.Set("Cache-Control", "no-store")
 	header.Set("X-Content-Type-Options", "nosniff")
+	ctx := r.Context()
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			// Nothing of the request goes to the log: not its path, not
 			// where it came from.
-			h.logger.ErrorContext(r.Context(), "a redirect panicked",
+			h.logger.ErrorContext(ctx, "a redirect panicked",
 				"panic", fmt.Sprint(recovered), "stack", string(debug.Stack()))
 			w.WriteHeader(http.StatusInternalServerError)
 		}

@@ -21,6 +21,7 @@ func TestRunRejectsWrongUsage(t *testing.T) {
 		{"unknown command", []string{"serve"}},
 		{"extra argument", []string{"api", "now"}},
 		{"extra argument to migrate", []string{"migrate", "up"}},
+		{"extra argument to redirect", []string{"redirect", "now"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -118,5 +119,37 @@ func TestAPIRefusesAListOfProxiesItCannotRead(t *testing.T) {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("stderr does not say %q: %q", want, stderr.String())
 		}
+	}
+}
+
+func TestRedirectNamesEveryMissingVariable(t *testing.T) {
+	var stderr bytes.Buffer
+	if code := run(t.Context(), []string{"redirect"}, environmentOf(nil), io.Discard, &stderr); code != exitFailure {
+		t.Errorf("exit code = %d, want %d", code, exitFailure)
+	}
+	for _, name := range []string{"CORINTO_DATABASE_URL", "CORINTO_REDIRECT_ADDR", "CORINTO_HEALTH_ADDR", "CORINTO_REDIRECT_DOMAIN"} {
+		if !strings.Contains(stderr.String(), name) {
+			t.Errorf("stderr does not name %s: %q", name, stderr.String())
+		}
+	}
+}
+
+// A redirect without its links would answer that none exists. It does not
+// start without the database.
+func TestRedirectRefusesToStartWithoutTheDatabase(t *testing.T) {
+	const sentinel = "sentinel-not-a-password"
+	values := map[string]string{
+		// Nothing listens on port 1 of the loopback interface.
+		"CORINTO_DATABASE_URL":    "postgres://corinto:" + sentinel + "@127.0.0.1:1/corinto?connect_timeout=1",
+		"CORINTO_REDIRECT_ADDR":   "127.0.0.1:0",
+		"CORINTO_HEALTH_ADDR":     "127.0.0.1:0",
+		"CORINTO_REDIRECT_DOMAIN": "go.example.dev",
+	}
+	var stderr bytes.Buffer
+	if code := run(t.Context(), []string{"redirect"}, environmentOf(values), io.Discard, &stderr); code != exitFailure {
+		t.Errorf("exit code = %d, want %d", code, exitFailure)
+	}
+	if strings.Contains(stderr.String(), "listening") || strings.Contains(stderr.String(), sentinel) {
+		t.Errorf("the process listened without its links, or logged the password: %q", stderr.String())
 	}
 }
