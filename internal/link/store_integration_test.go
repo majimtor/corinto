@@ -440,3 +440,66 @@ func TestCreateBoundsWhatDescribesALink(t *testing.T) {
 		t.Errorf("the longest title and the most tags: err = %v, want none", err)
 	}
 }
+
+// What the replica of the redirect reads: the links of the domain, live or
+// changed since a moment, with the time of the database.
+func TestServedReadsWhatTheRedirectNeeds(t *testing.T) {
+	pool := database(t)
+	store := link.NewStore(pool, redirectDomain, rand.Reader)
+	owner := workspace(t, pool, "", "")
+	create := func(from *link.Store) link.Link {
+		t.Helper()
+		created, err := from.Create(t.Context(), owner, link.Draft{Destination: "https://example.com/a", Campaign: link.Campaign{Source: "newsletter"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return created
+	}
+	live, gone := create(store), create(store)
+	elsewhere := create(link.NewStore(pool, "other.example.dev", rand.Reader))
+	if err := store.Delete(t.Context(), owner, gone.ID); err != nil {
+		t.Fatal(err)
+	}
+	var databaseNow time.Time
+	if err := pool.QueryRow(t.Context(), `SELECT now()`).Scan(&databaseNow); err != nil {
+		t.Fatal(err)
+	}
+
+	all, at, err := store.Served(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := link.Served{ID: live.ID, WorkspaceID: owner, Identifier: live.Identifier, State: link.StateActive,
+		Resolved: "https://example.com/a?utm_source=newsletter", Version: 1}
+	if len(all) != 1 || all[0] != want {
+		t.Errorf("Served = %+v, want only %+v", all, want)
+	}
+	if at.Before(databaseNow) || at.Sub(databaseNow) > time.Minute {
+		t.Errorf("Served says it read at %v, and the database said %v just before", at, databaseNow)
+	}
+
+	// Since a moment: the deleted link too, as a tombstone, and nothing of
+	// another domain or older than the moment.
+	changed, _, err := store.ServedSince(t.Context(), gone.CreatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 1 || changed[0].ID != gone.ID || changed[0].State != link.StateDeleted || changed[0].Resolved != "" || changed[0].Version != 2 {
+		t.Errorf("ServedSince the second link = %+v, want its tombstone at version 2", changed)
+	}
+	everything, _, err := store.ServedSince(t.Context(), live.CreatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(everything) != 2 {
+		t.Errorf("ServedSince the first link = %d links, want 2", len(everything))
+	}
+	for _, served := range everything {
+		if served.ID == elsewhere.ID {
+			t.Error("a link of another domain was read")
+		}
+	}
+	if none, _, err := store.ServedSince(t.Context(), databaseNow.Add(time.Hour)); err != nil || len(none) != 0 {
+		t.Errorf("ServedSince a moment that has not come = %d links, %v", len(none), err)
+	}
+}
