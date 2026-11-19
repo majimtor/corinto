@@ -11,7 +11,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/majimtor/corinto/internal/classify"
 	"github.com/majimtor/corinto/internal/health"
+	"github.com/majimtor/corinto/internal/ingest"
 	"github.com/majimtor/corinto/internal/limits"
 	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/postgres"
@@ -20,7 +22,8 @@ import (
 )
 
 // runRedirect runs the role redirect: it loads a copy of the links, keeps
-// it up to date and answers on the host of the short links from it.
+// it up to date and answers on the host of the short links from it. What
+// its responses leave behind waits in memory and is written to the inbox.
 func runRedirect(ctx context.Context, getenv func(string) string, logger *slog.Logger) error {
 	env := environment{getenv: getenv}
 	databaseURL := env.require("CORINTO_DATABASE_URL")
@@ -34,6 +37,10 @@ func runRedirect(ctx context.Context, getenv func(string) string, logger *slog.L
 	proxies, err := limits.ParseProxies(getenv("CORINTO_TRUSTED_PROXIES"))
 	if err != nil {
 		return fmt.Errorf("CORINTO_TRUSTED_PROXIES: %w", err)
+	}
+	rules, err := classify.New()
+	if err != nil {
+		return fmt.Errorf("read the classification rules: %w", err)
 	}
 
 	pool, err := pgxpool.New(ctx, databaseURL)
@@ -73,13 +80,25 @@ func runRedirect(ctx context.Context, getenv func(string) string, logger *slog.L
 	// refreshed with them.
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
-	handler, err := redirect.New(ctx, redirect.Settings{Links: links, Logger: logger, Now: time.Now, TrustedProxies: proxies})
+	events := ingest.NewBuffer(ingest.NewStore(pool, logger), logger)
+	handler, err := redirect.New(ctx, redirect.Settings{
+		Links: links, Logger: logger, Now: time.Now, TrustedProxies: proxies, Rules: rules, Events: events,
+	})
 	if err != nil {
 		_ = redirectListener.Close()
 		_ = healthListener.Close()
 		return err
 	}
 	go links.Run(ctx)
+	// The buffer outlives the servers: what the last requests leave in it
+	// is written once they have been answered.
+	flushing, stopFlushing := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopFlushing()
+	flushed := make(chan struct{})
+	go func() {
+		defer close(flushed)
+		events.Run(flushing)
+	}()
 	// Ready from here on, with the database or without it: the process
 	// answers from its copy, and how old the copy is goes to the log.
 	ready := func(context.Context) error { return nil }
@@ -88,5 +107,8 @@ func runRedirect(ctx context.Context, getenv func(string) string, logger *slog.L
 	go func() { ended <- health.Serve(ctx, healthListener, ready, logger) }()
 	first := <-ended
 	stop()
-	return errors.Join(first, <-ended)
+	err = errors.Join(first, <-ended)
+	stopFlushing()
+	<-flushed
+	return err
 }

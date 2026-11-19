@@ -10,12 +10,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/majimtor/corinto/internal/classify"
+	"github.com/majimtor/corinto/internal/ingest"
 	"github.com/majimtor/corinto/internal/limits"
 	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/redirect"
@@ -52,7 +55,25 @@ func host(t *testing.T, served ...link.Served) string {
 // hostAt starts the host with a clock and a list of trusted proxies.
 func hostAt(t *testing.T, clock func() time.Time, proxies string, served ...link.Served) string {
 	t.Helper()
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	address, _ := hostThatRecords(t, clock, proxies, served...)
+	return address
+}
+
+// hostThatRecords starts the host and returns its address and what its
+// responses leave behind.
+func hostThatRecords(t *testing.T, clock func() time.Time, proxies string, served ...link.Served) (string, *left) {
+	t.Helper()
+	behind := &left{counts: make(map[ingest.Counter][]time.Time)}
+	server := httptest.NewServer(handlerOver(t, clock, proxies, behind, io.Discard, served...))
+	t.Cleanup(server.Close)
+	return server.URL, behind
+}
+
+// handlerOver returns the handler of the host over a list of links, with
+// what takes its events and where its log goes.
+func handlerOver(t *testing.T, clock func() time.Time, proxies string, events redirect.Recorder, log io.Writer, served ...link.Served) http.Handler {
+	t.Helper()
+	logger := slog.New(slog.NewJSONHandler(log, nil))
 	copied := resolve.New(links(served), logger)
 	if err := copied.Load(t.Context()); err != nil {
 		t.Fatal(err)
@@ -61,26 +82,69 @@ func hostAt(t *testing.T, clock func() time.Time, proxies string, served ...link
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler, err := redirect.New(t.Context(), redirect.Settings{Links: copied, Logger: logger, Now: clock, TrustedProxies: trusted})
+	handler, err := redirect.New(t.Context(), redirect.Settings{
+		Links: copied, Logger: logger, Now: clock, TrustedProxies: trusted, Rules: rules(t), Events: events,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-	return server.URL
+	return handler
+}
+
+// rules returns the rules as the binary embeds them, read once.
+func rules(t *testing.T) *classify.Classifier {
+	t.Helper()
+	read, err := readRules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return read
+}
+
+var readRules = sync.OnceValues(classify.New)
+
+// left is what the responses of a test left behind: the events, in the
+// order in which they were handed over, and the moments of each count.
+type left struct {
+	mu     sync.Mutex
+	events []ingest.Event
+	counts map[ingest.Counter][]time.Time
+}
+
+func (l *left) Record(event ingest.Event) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.events = append(l.events, event)
+}
+
+func (l *left) Count(name ingest.Counter, at time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.counts[name] = append(l.counts[name], at)
+}
+
+// behind returns the events and how many times each counter was counted.
+func (l *left) behind() ([]ingest.Event, map[ingest.Counter]int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	counts := make(map[ingest.Counter]int)
+	for name, moments := range l.counts {
+		counts[name] = len(moments)
+	}
+	return slices.Clone(l.events), counts
 }
 
 // The links of these tests. Each identifier says what its link is.
 func catalogue() []link.Served {
 	soon, past := now.Add(time.Second), now.Add(-time.Second)
 	return []link.Served{
-		{ID: "1", Identifier: "k7m2xq9d", State: link.StateActive, Resolved: "https://example.com/landing?ref=home&utm_source=newsletter#top", Version: 1},
-		{ID: "2", Identifier: "spring-sale", State: link.StateActive, Resolved: "https://example.com/sale", Version: 1},
-		{ID: "3", Identifier: "expires-soon", State: link.StateActive, Resolved: "https://example.com/soon", ExpiresAt: &soon, Version: 1},
-		{ID: "4", Identifier: "expired", State: link.StateActive, Resolved: "https://example.com/expired", ExpiresAt: &past, Version: 1},
-		{ID: "5", Identifier: "expires-now", State: link.StateActive, Resolved: "https://example.com/now", ExpiresAt: &now, Version: 1},
-		{ID: "6", Identifier: "disabled", State: link.StateDisabled, Resolved: "https://example.com/disabled", Version: 2},
-		{ID: "7", Identifier: "blocked", State: link.StateBlocked, Resolved: "https://example.com/blocked", Version: 2},
+		{ID: "1", WorkspaceID: "acme", Identifier: "k7m2xq9d", State: link.StateActive, Resolved: "https://example.com/landing?ref=home&utm_source=newsletter#top", Version: 1},
+		{ID: "2", WorkspaceID: "globex", Identifier: "spring-sale", State: link.StateActive, Resolved: "https://example.com/sale", Version: 1},
+		{ID: "3", WorkspaceID: "acme", Identifier: "expires-soon", State: link.StateActive, Resolved: "https://example.com/soon", ExpiresAt: &soon, Version: 1},
+		{ID: "4", WorkspaceID: "acme", Identifier: "expired", State: link.StateActive, Resolved: "https://example.com/expired", ExpiresAt: &past, Version: 1},
+		{ID: "5", WorkspaceID: "acme", Identifier: "expires-now", State: link.StateActive, Resolved: "https://example.com/now", ExpiresAt: &now, Version: 1},
+		{ID: "6", WorkspaceID: "globex", Identifier: "disabled", State: link.StateDisabled, Resolved: "https://example.com/disabled", Version: 2},
+		{ID: "7", WorkspaceID: "acme", Identifier: "blocked", State: link.StateBlocked, Resolved: "https://example.com/blocked", Version: 2},
 	}
 }
 
