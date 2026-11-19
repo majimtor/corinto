@@ -151,3 +151,66 @@ func TestTheWorkerIsNotReadyWithoutItsDatabase(t *testing.T) {
 		t.Errorf("the outage is in the log %d times, want once: %s", said, log.String())
 	}
 }
+
+// The worker deletes what has been kept for its time: once a day, the
+// first worker that asks, and no other after it.
+func TestTheWorkerDeletesWhatIsPastItsTime(t *testing.T) {
+	env, pool := migrated(t)
+	workspaceID, _ := printed(t, env, "create-workspace", "--name", "Acme")["id"].(string)
+	// Two events that were processed: one accepted 31 days ago, and one
+	// accepted 29 days ago.
+	if _, err := pool.Exec(t.Context(),
+		`WITH link AS (
+		     INSERT INTO links (workspace_id, domain, identifier, destination, resolved_destination)
+		     VALUES ($1, $2, 'k7m2xq9d', 'https://example.com/', 'https://example.com/') RETURNING id, workspace_id
+		 )
+		 INSERT INTO event_inbox (id, link_id, workspace_id, occurred_at, outcome, method, device, browser, class, rule,
+		                          rules_version, accepted_at, processed_at)
+		 SELECT uuidv7(), link.id, link.workspace_id, now() - age, 'redirected', 'GET', 'desktop', 'chrome',
+		        'presumed_human', 'presumed_human', 1, now() - age, now() - age + interval '1 second'
+		   FROM link, (VALUES (interval '31 days'), (interval '29 days')) AS aged (age)`,
+		workspaceID, redirectDomain); err != nil {
+		t.Fatal(err)
+	}
+
+	log := process(t, env, "worker")
+	state := func() (runs, finished, old, recent int) {
+		t.Helper()
+		err := pool.QueryRow(t.Context(),
+			`SELECT (SELECT count(*) FROM retention_runs),
+			        (SELECT count(*) FROM retention_runs WHERE finished_at IS NOT NULL AND inbox_events = 1),
+			        (SELECT count(*) FROM event_inbox WHERE accepted_at < now() - interval '30 days'),
+			        (SELECT count(*) FROM event_inbox WHERE accepted_at >= now() - interval '30 days')`).
+			Scan(&runs, &finished, &old, &recent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return runs, finished, old, recent
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		runs, finished, old, recent := state()
+		if runs == 1 && finished == 1 && old == 0 && recent == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("after 15 seconds there are %d runs, %d of them finished with one event deleted, and %d old and %d recent events; want 1, 1, 0 and 1; log: %s",
+				runs, finished, old, recent, log.String())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !strings.Contains(log.String(), `"msg":"the retention run finished"`) || !strings.Contains(log.String(), `"inbox_events":1`) {
+		t.Errorf("the log of the worker does not say what the run deleted: %s", log.String())
+	}
+
+	// Another worker starts on the same day, and finds the run done.
+	second := process(t, env, "worker")
+	announced(t, second, "the inbox is being consumed")
+	time.Sleep(2 * time.Second)
+	if runs, _, _, recent := state(); runs != 1 || recent != 1 {
+		t.Errorf("after a second worker started there are %d runs and %d recent events, want 1 and 1", runs, recent)
+	}
+	if strings.Contains(second.String(), "the retention run") {
+		t.Errorf("the second worker did a run, or failed one: %s", second.String())
+	}
+}

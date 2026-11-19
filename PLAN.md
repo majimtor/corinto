@@ -211,7 +211,11 @@ other request. The referrer host comes from the requester: at most
 clicks that name no referrer under `(none)`, always
 rendered as text. The panel shows times in UTC and says so. Raw events are
 kept 30 days and aggregates 13 months; a daily job deletes what is due
-and shows when it last ran (ADR 0010). An analytical store enters only if a
+and shows when it last ran (ADR 0010). An event is due 30 days after it was
+accepted, once it has been processed: one that still waits is not deleted.
+A dead-lettered event is due 30 days after it was set aside. The counts of
+the reconciliation are kept as long as the aggregates. An analytical store
+enters only if a
 panel query over the seed misses its objective (section 15).
 
 ## 6. Webhooks

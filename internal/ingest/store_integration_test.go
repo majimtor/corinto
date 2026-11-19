@@ -32,6 +32,9 @@ type stage struct {
 	pool  *pgxpool.Pool
 	store *Store
 	log   *lockedLog
+	// now is the clock of the database, read once by the tests that need
+	// it.
+	now time.Time
 	// The workspaces, and the link of each.
 	acme, globex         string
 	acmeLink, globexLink string
