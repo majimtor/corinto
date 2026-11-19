@@ -118,27 +118,14 @@ The redirect is served by its own process, `redirect`, from an in-memory
 replica of every link that is not deleted (ADR 0002, ADR 0006). Once
 started, it depends on nothing else to answer.
 
-| Case | Response | Event |
-| --- | --- | --- |
-| Active link, `GET` | `302 Found`, `Location` with the resolved destination, `Cache-Control: no-store`, no body | `redirected` |
-| Active link, `HEAD` | The same | `redirected`, classified as automated |
-| Disabled, expired or blocked | `404` with the common page and `Cache-Control: no-store` | `inactive` |
-| Deleted, unknown, or a path outside the grammar | The same `404` | None; a counter |
-| Any other method | `405` with `Allow: GET, HEAD` | None |
-| Over the rate limit of section 9 | `429` with `Retry-After` | None; a counter |
-
-The path is lower-cased before the lookup. The query string is ignored. The
-404 page is static and bilingual, without scripts or external resources,
-and does not say whether the link ever existed. It is one self-contained
-response: its only style is inline, allowed by its hash in a content
-security policy that allows nothing else. The reasons for 302 over 307, 301
-and 308, and for one 404 over 410, are in ADR 0007.
-
-The host that serves redirects emits no cookies and no scripts. Besides
-links it serves its root, which leads to the project's page, and
-`/.well-known/security.txt`; neither can collide with an identifier,
-because the grammar admits neither dots, nor slashes, nor an empty
-identifier.
+What it answers is in `contract/redirect.md`, the only source of it. An
+active link answers `302` with its resolved destination. A link that does
+not redirect and one that does not exist answer one and the same `404`,
+which does not say whether the link ever existed. No answer can be stored
+by a cache, and the query string of the request plays no part. Besides
+links, the host serves its root, which leads to the project's page, and
+`/.well-known/security.txt`. The reasons for 302 over 307, 301 and 308, and
+for one 404 over 410, are in ADR 0007.
 
 **Replica and invalidation.** The process loads all links at start and asks
 for changes every two seconds, with a thirty-second overlap window,
@@ -286,8 +273,8 @@ Three contracts, each with one source (ADR 0011).
    binary embeds and serves. The server validates requests against it, and
    no code is generated from it. The panel is rendered by the server and is
    not one of its clients (ADR 0014).
-2. **Redirect.** The table of section 3, which moves to
-   `contract/redirect.md` in S1 and has its only source there.
+2. **Redirect.** `contract/redirect.md`: the table of what the host of
+   the short links answers, asserted by tests from outside.
 3. **Webhook events.** One JSON Schema per type and version under
    `contract/schemas/webhooks/`, referenced from the OpenAPI document.
 

@@ -12,7 +12,7 @@ The redirect always answers; when something fails, analytics give way.
 ## Terms
 
 - **Served**: a response that owes an event. A redirect and the 404 of an
-  inactive link owe one; no other response does (PLAN.md section 3).
+  inactive link owe one; no other response does (`contract/redirect.md`).
 - **Accepted**: an event inserted in the inbox table. Acceptance is the
   first moment the event is durable.
 - **Lost**: served and never accepted.

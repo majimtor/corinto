@@ -70,8 +70,7 @@ func NewIdentifier(random io.Reader) (string, error) {
 }
 
 // WellFormedIdentifier reports whether s can be the identifier of a link at
-// all, generated or chosen. The redirect answers anything else without
-// looking it up, so a stranger cannot make it search for arbitrary paths.
+// all, generated or chosen.
 func WellFormedIdentifier(s string) bool {
 	if len(s) < minAliasLength || len(s) > maxAliasLength {
 		return false

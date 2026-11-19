@@ -32,5 +32,8 @@ Changes to the contracts in this directory, newest first. A change that
   /v1/links/{id}/disable` and `/enable`) and `deleteLink` (`DELETE
   /v1/links/{id}`).
 - `link_blocked` (`409`), for a change to a link the operator blocked.
+- The redirect contract, in `redirect.md`: it was a table of `PLAN.md`
+  section 3 until now. New with it: the `Host` of a request plays no part,
+  and what the root and `/.well-known/security.txt` answer.
 - The skeleton of the management API: OpenAPI 3.1, the API key scheme and
   the shape of errors. No operations yet.
