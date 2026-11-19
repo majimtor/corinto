@@ -50,5 +50,22 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  redirect:
+    build: *image
+    command: ["redirect"]
+    environment:
+      CORINTO_DATABASE_URL: *database-url
+      CORINTO_REDIRECT_ADDR: ":8082"
+      CORINTO_HEALTH_ADDR: ":8081"
+      # The name the short links of the local stack are followed under.
+      CORINTO_REDIRECT_DOMAIN: "localhost:8082"
+    ports:
+      - "127.0.0.1:8082:8082"
+      # The health endpoints of this process, next to the ones of api.
+      - "127.0.0.1:8083:8081"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
 volumes:
   db-data:

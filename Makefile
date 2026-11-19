@@ -17,6 +17,8 @@ COMPOSE_PROJECT := corinto
 IMAGE := ghcr.io/majimtor/corinto
 API_URL := http://127.0.0.1:8080
 HEALTH_URL := http://127.0.0.1:8081
+REDIRECT_URL := http://127.0.0.1:8082
+REDIRECT_HEALTH_URL := http://127.0.0.1:8083
 
 .PHONY: up down test integration verify lint secrets docs image
 
@@ -25,7 +27,10 @@ up: deploy/.env
 	$(COMPOSE) up --build --detach --wait
 	@curl --silent --show-error --fail --output /dev/null \
 		--retry 30 --retry-delay 1 --retry-all-errors $(HEALTH_URL)/readyz
-	@echo "corinto is up; the API on $(API_URL), health endpoints on $(HEALTH_URL)"
+	@curl --silent --show-error --fail --output /dev/null \
+		--retry 30 --retry-delay 1 --retry-all-errors $(REDIRECT_HEALTH_URL)/readyz
+	@echo "corinto is up; the API on $(API_URL), short links on $(REDIRECT_URL)"
+	@echo "health endpoints on $(HEALTH_URL) and $(REDIRECT_HEALTH_URL)"
 
 # Stops the system and deletes its data. The stack is disposable: the next
 # `make up` starts from nothing.

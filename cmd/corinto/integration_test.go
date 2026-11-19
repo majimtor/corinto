@@ -32,6 +32,7 @@ func environmentFor(databaseURL string) func(string) string {
 	return environmentOf(map[string]string{
 		"CORINTO_DATABASE_URL":    databaseURL,
 		"CORINTO_API_ADDR":        "127.0.0.1:0",
+		"CORINTO_REDIRECT_ADDR":   "127.0.0.1:0",
 		"CORINTO_HEALTH_ADDR":     "127.0.0.1:0",
 		"CORINTO_REDIRECT_DOMAIN": redirectDomain,
 	})
