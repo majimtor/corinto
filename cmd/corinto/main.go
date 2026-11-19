@@ -28,7 +28,8 @@ commands:
   redirect  run the redirect process: the host of the short links on one
             port and its health endpoints on another
   worker    run the worker process: it adds the accesses to the metrics of
-            their links, and has its health endpoints on a port
+            their links, deletes once a day what has been kept for its time,
+            and has its health endpoints on a port
   migrate   apply the migrations the database does not have yet, and exit
   operator  act on the database as the operator; run it without an action
             to see the actions

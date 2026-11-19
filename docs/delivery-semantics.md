@@ -108,6 +108,11 @@ take the count with it. Lost is never stored: it is always the difference.
 Events still waiting in the buffer are part of that difference until they
 are accepted, so the lost count of a period settles once the buffer of
 that period has been written.
+
+The terms of a day are counts, kept as long as its aggregates (PLAN.md
+section 5): they still add up when the events of that day have been
+deleted. An event that still waits is never deleted, so what a day shows as
+pending is there.
 Test: `TestTheReconciliationAddsUp` in `internal/ingest`, against
 PostgreSQL, which drops events on purpose and reads both equalities.
 
@@ -143,6 +148,10 @@ it does when the database is absent at start, is in PLAN.md section 3.
   there was. The error is towards declaring loss. The accepted count
   cannot be written twice: the insert that counts it ignores an event that
   is already there.
+- **A dead letter can be sent back only while it is kept.** A
+  dead-lettered event is a raw event, and is deleted when its time is up,
+  counted from the moment it was set aside (PLAN.md section 5). After that
+  it cannot be processed. It stays counted as dead-lettered.
 - **Exactly once ends at the aggregates.** The guarantee of statement 4
   rests on one PostgreSQL transaction. Nothing outside the database is
   told about an event in S1; when something is, that step has its own
