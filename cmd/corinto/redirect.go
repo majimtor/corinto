@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/majimtor/corinto/internal/health"
+	"github.com/majimtor/corinto/internal/limits"
 	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/postgres"
 	"github.com/majimtor/corinto/internal/redirect"
@@ -28,6 +29,11 @@ func runRedirect(ctx context.Context, getenv func(string) string, logger *slog.L
 	redirectDomain := env.require("CORINTO_REDIRECT_DOMAIN")
 	if err := env.err(); err != nil {
 		return err
+	}
+	// Optional: without it no forwarding header is believed.
+	proxies, err := limits.ParseProxies(getenv("CORINTO_TRUSTED_PROXIES"))
+	if err != nil {
+		return fmt.Errorf("CORINTO_TRUSTED_PROXIES: %w", err)
 	}
 
 	pool, err := pgxpool.New(ctx, databaseURL)
@@ -67,12 +73,18 @@ func runRedirect(ctx context.Context, getenv func(string) string, logger *slog.L
 	// refreshed with them.
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
+	handler, err := redirect.New(ctx, redirect.Settings{Links: links, Logger: logger, Now: time.Now, TrustedProxies: proxies})
+	if err != nil {
+		_ = redirectListener.Close()
+		_ = healthListener.Close()
+		return err
+	}
 	go links.Run(ctx)
 	// Ready from here on, with the database or without it: the process
 	// answers from its copy, and how old the copy is goes to the log.
 	ready := func(context.Context) error { return nil }
 	ended := make(chan error, 2)
-	go func() { ended <- redirect.Serve(ctx, redirectListener, redirect.New(links, logger, time.Now), logger) }()
+	go func() { ended <- redirect.Serve(ctx, redirectListener, handler, logger) }()
 	go func() { ended <- health.Serve(ctx, healthListener, ready, logger) }()
 	first := <-ended
 	stop()

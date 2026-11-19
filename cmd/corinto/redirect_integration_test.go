@@ -71,7 +71,8 @@ func until(t *testing.T, address string, status int) time.Duration {
 		if got, _ := follow(t, address); got == status {
 			return time.Since(start)
 		}
-		time.Sleep(50 * time.Millisecond)
+		// Ten times a second: half of what the host lets one address ask.
+		time.Sleep(100 * time.Millisecond)
 	}
 	got, _ := follow(t, address)
 	t.Fatalf("after %s the short link still answers %d, want %d", deactivation, got, status)

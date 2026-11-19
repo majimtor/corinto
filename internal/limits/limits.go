@@ -1,7 +1,9 @@
 // Package limits holds the initial limits and quotas of PLAN.md section 9,
-// one constant per value. They are code and not configuration: they do not
-// differ between installations, so a change to one is a change that is
-// reviewed, and nothing can start with a value nobody chose.
+// one constant per value, and what applies the ones that are counted in
+// time: the limiter, and the address of the client it counts by. The values
+// are code and not configuration: they do not differ between installations,
+// so a change to one is a change that is reviewed, and nothing can start
+// with a value nobody chose.
 package limits
 
 import "time"
@@ -84,4 +86,17 @@ const (
 	// take. A browser sends a few hundred bytes; a path of a megabyte is
 	// not a short link.
 	RedirectMaxHeaderBytes = 16 << 10
+)
+
+// What the host of the short links allows one client address. A person
+// follows a link now and then; a page of links opened at once is the burst.
+// Whatever asks faster for longer is trying identifiers, and is told to
+// wait.
+const (
+	// RedirectRequestsPerSecond is how many requests one client address
+	// makes in a second, sustained.
+	RedirectRequestsPerSecond = 20
+	// RedirectBurst is how many requests one client address makes at once
+	// after being idle.
+	RedirectBurst = 40
 )

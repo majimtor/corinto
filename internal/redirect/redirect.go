@@ -5,16 +5,21 @@ package redirect
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	_ "embed" // the 404 page is part of the binary
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
+	"net/netip"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/majimtor/corinto/internal/limits"
 	"github.com/majimtor/corinto/internal/resolve"
 )
 
@@ -49,22 +54,42 @@ func policyOf(page []byte) string {
 		"'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 }
 
+// Settings is what the host of the short links takes from the process that
+// runs it.
+type Settings struct {
+	// Links is the copy of the links, which somebody else keeps up to date.
+	Links  *resolve.Replica
+	Logger *slog.Logger
+	// Now is the clock that says whether a link has expired and how fast a
+	// client asks. Everything but a test passes time.Now.
+	Now func() time.Time
+	// TrustedProxies are the proxies whose forwarding header is believed
+	// when the address of a client is asked for. Empty trusts none.
+	TrustedProxies []netip.Prefix
+}
+
 type handler struct {
-	links  *resolve.Replica
-	logger *slog.Logger
-	now    func() time.Time
+	Settings
+	// requests counts what each client address asks for.
+	requests  *limits.Limiter
+	addresses *limits.Addresses
 	// security is the security.txt of this process.
 	security []byte
 }
 
-// New returns what answers on the host of the short links, from a copy of
-// the links that somebody else keeps up to date. now is the clock that
-// says whether a link has expired; everything but a test passes time.Now.
-func New(links *resolve.Replica, logger *slog.Logger, now func() time.Time) http.Handler {
+// New returns what answers on the host of the short links. What it starts
+// stops when ctx is done.
+func New(ctx context.Context, settings Settings) (http.Handler, error) {
+	addresses, err := limits.NewAddresses()
+	if err != nil {
+		return nil, err
+	}
+	requests := limits.NewLimiter(limits.RedirectRequestsPerSecond, time.Second, limits.RedirectBurst, settings.Now)
+	go requests.Sweep(ctx)
 	security := fmt.Sprintf(
 		"Contact: %s/security/advisories/new\nExpires: %s\nPolicy: %s/blob/main/SECURITY.md\nPreferred-Languages: en, es\n",
-		projectPage, now().Add(securityFor).UTC().Format(time.RFC3339), projectPage)
-	return &handler{links: links, logger: logger, now: now, security: []byte(security)}
+		projectPage, settings.Now().Add(securityFor).UTC().Format(time.RFC3339), projectPage)
+	return &handler{Settings: settings, requests: requests, addresses: addresses, security: []byte(security)}, nil
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -78,11 +103,23 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if recovered := recover(); recovered != nil {
 			// Nothing of the request goes to the log: not its path, not
 			// where it came from.
-			h.logger.ErrorContext(ctx, "a redirect panicked",
+			h.Logger.ErrorContext(ctx, "a redirect panicked",
 				"panic", fmt.Sprint(recovered), "stack", string(debug.Stack()))
 			w.WriteHeader(http.StatusInternalServerError)
 		}
 	}()
+
+	// Every request counts against the address it comes from, whatever it
+	// asks for: whoever tries identifiers one after another is told to wait
+	// like anyone else, before anything is looked up. Only a hash of the
+	// address is kept, and only while it says something.
+	client := h.addresses.Key(limits.ClientAddress(r, h.TrustedProxies))
+	if wait := h.requests.Take(client); wait > 0 {
+		// In whole seconds, rounded up: sooner would be refused again.
+		header.Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
+		w.WriteHeader(http.StatusTooManyRequests)
+		return
+	}
 
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		header.Set("Allow", "GET, HEAD")
@@ -101,7 +138,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		// The copy is keyed by identifier, so only a path that is exactly a
 		// slash and an identifier finds anything.
-		if held, known := h.links.Lookup(strings.TrimPrefix(path, "/")); known && held.Redirects(h.now()) {
+		if held, known := h.Links.Lookup(strings.TrimPrefix(path, "/")); known && held.Redirects(h.Now()) {
 			found(w, held.Destination)
 			return
 		}

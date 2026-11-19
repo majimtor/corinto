@@ -1,4 +1,4 @@
-package api
+package limits
 
 import (
 	"crypto/hmac"
@@ -34,13 +34,13 @@ func ParseProxies(list string) ([]netip.Prefix, error) {
 	return proxies, nil
 }
 
-// clientAddress returns the address a request comes from. It is the one of
+// ClientAddress returns the address a request comes from. It is the one of
 // the connection. A forwarding header is believed only when the connection
 // comes from a trusted proxy, and then only as far as the proxies reach:
 // the header is read from the right, where each proxy appends what it saw,
 // up to the first address that is not a proxy. Anything further left was
 // written by the client and could be anything.
-func clientAddress(r *http.Request, trusted []netip.Prefix) netip.Addr {
+func ClientAddress(r *http.Request, trusted []netip.Prefix) netip.Addr {
 	remote, err := netip.ParseAddrPort(r.RemoteAddr)
 	if err != nil {
 		// No address to tell clients apart by: they all count as one.
@@ -74,26 +74,28 @@ func within(networks []netip.Prefix, address netip.Addr) bool {
 	return false
 }
 
-// addresses turns a client address into the key of a counter. The address
+// Addresses turns a client address into the key of a counter. The address
 // itself is never kept: the key is a hash of it under a secret that exists
 // only in this process, so that what is in memory cannot be turned back
 // into an address, by reading it or by trying every address.
-type addresses struct {
+type Addresses struct {
 	secret []byte
 }
 
-func newAddresses() (*addresses, error) {
+// NewAddresses returns the hash of the addresses of one process, with a
+// secret of its own.
+func NewAddresses() (*Addresses, error) {
 	secret := make([]byte, sha256.Size)
 	if _, err := rand.Read(secret); err != nil {
 		return nil, fmt.Errorf("generate the secret of the address hash: %w", err)
 	}
-	return &addresses{secret: secret}, nil
+	return &Addresses{secret: secret}, nil
 }
 
-// key returns the key of the counter of an address. An IPv6 address counts
+// Key returns the key of the counter of an address. An IPv6 address counts
 // with its whole /64, which is what one client is given: counting each of
 // its addresses apart would let it start a new counter with every request.
-func (a *addresses) key(address netip.Addr) string {
+func (a *Addresses) Key(address netip.Addr) string {
 	if address.Is6() {
 		if network, err := address.Prefix(64); err == nil {
 			address = network.Addr()

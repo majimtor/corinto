@@ -27,6 +27,12 @@ up, and nothing else in it is changed.
 - The `Host` of the request plays no part. The process serves one redirect
   domain, and no response is built from that header.
 - A link past its `expires_at` does not redirect from that instant on.
+- The rate limit is per client address: 20 requests a second, sustained,
+  and 40 at once after being idle. Every request counts, whatever it asks
+  for and whatever it would be answered. `Retry-After` is in whole seconds.
+- The address of a client is the one of its connection. A forwarding header
+  is believed only from a proxy named in the configuration, and the
+  addresses of one IPv6 /64 count as one client.
 - The grammar of an identifier is the one of `PLAN.md` section 2: 3 to 40
   characters among `a` to `z`, `0` to `9` and the hyphen, with no hyphen at
   either end. A path that is not a slash and an identifier names no link.

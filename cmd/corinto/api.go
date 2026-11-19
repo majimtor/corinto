@@ -14,6 +14,7 @@ import (
 	"github.com/majimtor/corinto/internal/api"
 	"github.com/majimtor/corinto/internal/auth"
 	"github.com/majimtor/corinto/internal/health"
+	"github.com/majimtor/corinto/internal/limits"
 	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/postgres"
 )
@@ -36,7 +37,7 @@ func runAPI(ctx context.Context, getenv func(string) string, logger *slog.Logger
 		return err
 	}
 	// Optional: without it no forwarding header is believed.
-	proxies, err := api.ParseProxies(getenv("CORINTO_TRUSTED_PROXIES"))
+	proxies, err := limits.ParseProxies(getenv("CORINTO_TRUSTED_PROXIES"))
 	if err != nil {
 		return fmt.Errorf("CORINTO_TRUSTED_PROXIES: %w", err)
 	}
