@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -49,12 +50,25 @@ func TestUpdateChangesWhatItIsGivenAndNothingElse(t *testing.T) {
 	}
 
 	// A new campaign keeps the destination.
-	retagged, err := store.Update(t.Context(), owner, created.ID, link.Change{Campaign: &link.Campaign{Medium: "email"}})
+	retagged, err := store.Update(t.Context(), owner, created.ID,
+		link.Change{Campaign: link.CampaignChange{Source: pointer(""), Medium: pointer("email")}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if retagged.Resolved != "https://example.com/b?utm_medium=email" || retagged.Campaign.Source != "" || retagged.Version != 3 {
 		t.Errorf("resolved = %q, campaign = %+v, version = %d", retagged.Resolved, retagged.Campaign, retagged.Version)
+	}
+
+	// A change that names one parameter leaves the others as they are.
+	termed, err := store.Update(t.Context(), owner, created.ID, link.Change{Campaign: link.CampaignChange{Term: pointer("spring")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if termed.Resolved != "https://example.com/b?utm_medium=email&utm_term=spring" || termed.Campaign.Medium != "email" {
+		t.Errorf("resolved = %q, campaign = %+v", termed.Resolved, termed.Campaign)
+	}
+	if _, err := store.Update(t.Context(), owner, created.ID, link.Change{Campaign: link.CampaignChange{Term: pointer("")}}); err != nil {
+		t.Fatal(err)
 	}
 
 	// The rest, at once: a title, no tags and no expiry.
@@ -64,11 +78,11 @@ func TestUpdateChangesWhatItIsGivenAndNothingElse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plain.Title != "" || len(plain.Tags) != 0 || plain.ExpiresAt != nil || plain.Version != 4 {
+	if plain.Title != "" || len(plain.Tags) != 0 || plain.ExpiresAt != nil || plain.Version != 6 {
 		t.Errorf("title = %q, tags = %v, expiry = %v, version = %d", plain.Title, plain.Tags, plain.ExpiresAt, plain.Version)
 	}
 	read, err := store.Get(t.Context(), owner, created.ID)
-	if err != nil || read.Version != 4 || read.Resolved != retagged.Resolved {
+	if err != nil || read.Version != 6 || read.Resolved != retagged.Resolved {
 		t.Errorf("what is read is not the last change: %+v, %v", read, err)
 	}
 }
@@ -115,7 +129,9 @@ func TestAnUpdateThatIsRefusedLeavesTheLinkAsItWas(t *testing.T) {
 	}{
 		{"outside the allowlist", link.Change{Destination: pointer("https://example.com/admin")}, link.ErrDestinationNotAllowed},
 		{"a destination the rules refuse", link.Change{Destination: pointer("http://localhost/")}, link.ErrDestinationHost},
-		{"a campaign value over the limit", link.Change{Campaign: &link.Campaign{Name: string(make([]byte, 201))}}, link.ErrCampaignValue},
+		{"a campaign value over the limit", link.Change{Campaign: link.CampaignChange{Name: pointer(string(make([]byte, 201)))}}, link.ErrCampaignValue},
+		{"a title over the limit", link.Change{Title: pointer(strings.Repeat("a", link.MaxTitleLength+1))}, link.ErrTitle},
+		{"a tag twice", link.Change{Tags: pointer([]string{"q4", "q4"})}, link.ErrTags},
 		{
 			"a title with a destination that is refused",
 			link.Change{Title: pointer("New"), Destination: pointer("https://go.example.dev/x")},

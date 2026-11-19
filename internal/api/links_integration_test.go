@@ -70,7 +70,8 @@ func (s *stage) workspace(t *testing.T, draft link.WorkspaceDraft) string {
 	if draft.MaxLinks == 0 {
 		draft.MaxLinks = 1000
 	}
-	draft.MaxKeys = 10
+	// Room for the keys of a test that issues two for every operation.
+	draft.MaxKeys = 100
 	created, err := link.CreateWorkspace(t.Context(), s.pool, draft)
 	if err != nil {
 		t.Fatal(err)
@@ -183,6 +184,10 @@ func TestCreateLinkStoresWhatItIsGivenAndShowsIt(t *testing.T) {
 	}
 	if !link.WellFormedIdentifier(created.Identifier) || len(created.Identifier) != 8 || created.ID == "" {
 		t.Errorf("the link has the identifier %q and the id %q", created.Identifier, created.ID)
+	}
+	// A URL is written as it is: no ampersand turned into an escape.
+	if !strings.Contains(string(body), `"https://example.com/landing?ref=home&utm_source=newsletter&utm_campaign=launch#top"`) {
+		t.Errorf("the resolved destination is not written as it is: %s", body)
 	}
 	// Times are given in UTC, whatever zone they were sent or stored in.
 	if !strings.Contains(string(body), `"expires_at":"`+expiry.Format(time.RFC3339)+`"`) || created.CreatedAt.Location() != time.UTC {

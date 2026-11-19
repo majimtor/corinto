@@ -19,6 +19,10 @@ func operations(document []byte, store *link.Store, now func() time.Time) map[st
 		"createLink":  http.HandlerFunc(links.create),
 		"getLink":     http.HandlerFunc(links.get),
 		"listLinks":   http.HandlerFunc(links.list),
+		"updateLink":  http.HandlerFunc(links.update),
+		"disableLink": http.HandlerFunc(links.disable),
+		"enableLink":  http.HandlerFunc(links.enable),
+		"deleteLink":  http.HandlerFunc(links.delete),
 	}
 }
 

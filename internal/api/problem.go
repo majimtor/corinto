@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"net/http"
@@ -26,6 +27,7 @@ const (
 	CodeUnsupportedMedia Code = "unsupported_media_type"
 	CodeAliasTaken       Code = "alias_taken"
 	CodeQuotaExceeded    Code = "quota_exceeded"
+	CodeLinkBlocked      Code = "link_blocked"
 )
 
 // codes returns every code, in the order of the contract.
@@ -33,7 +35,7 @@ func codes() []Code {
 	return []Code{
 		CodeInvalidRequest, CodeNotFound, CodeMethodNotAllowed, CodePayloadTooLarge, CodeInternalError,
 		CodeUnauthenticated, CodeForbidden, CodeRateLimited, CodeUnavailable,
-		CodeUnsupportedMedia, CodeAliasTaken, CodeQuotaExceeded,
+		CodeUnsupportedMedia, CodeAliasTaken, CodeQuotaExceeded, CodeLinkBlocked,
 	}
 }
 
@@ -139,8 +141,13 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 }
 
 func write(w http.ResponseWriter, status int, mediaType string, value any) {
-	body, err := json.Marshal(value)
-	if err != nil {
+	var body bytes.Buffer
+	encoder := json.NewEncoder(&body)
+	// A destination is a URL, and its ampersands are written as they are.
+	// The escapes the encoder would use are for JSON inside a page, which
+	// this never is: every response says what it is and forbids guessing.
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
 		// A value of this package that cannot be written is a mistake in
 		// the code: it stops the request, and the caller of the operation
 		// answers that it failed.
@@ -149,5 +156,5 @@ func write(w http.ResponseWriter, status int, mediaType string, value any) {
 	w.Header().Set("Content-Type", mediaType+"; charset=utf-8")
 	w.WriteHeader(status)
 	// A client that went away cannot be told so.
-	_, _ = w.Write(append(body, '\n'))
+	_, _ = w.Write(body.Bytes())
 }

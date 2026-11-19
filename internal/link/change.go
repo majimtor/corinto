@@ -20,13 +20,46 @@ var ErrLinkBlocked = errors.New("the link is blocked")
 // attribute as it is; the identifier of a link never changes.
 type Change struct {
 	Destination *string
-	Campaign    *Campaign
-	Title       *string
-	Tags        *[]string
+	Campaign    CampaignChange
+	// Title sets the title; an empty one removes it.
+	Title *string
+	Tags  *[]string
 	// ExpiresAt sets the expiry; NoExpiry removes it. With neither, the
 	// expiry stays as it is.
 	ExpiresAt *time.Time
 	NoExpiry  bool
+}
+
+// CampaignChange says what a change does to each campaign parameter of a
+// link: a nil field leaves the parameter as it is, an empty value removes
+// it and any other sets it. Each parameter changes on its own, under the
+// lock of the row, so that two changes to different parameters at the same
+// time both stay.
+type CampaignChange struct {
+	Source  *string
+	Medium  *string
+	Name    *string
+	Term    *string
+	Content *string
+}
+
+// apply changes a campaign and reports whether the change names any
+// parameter.
+func (c CampaignChange) apply(campaign *Campaign) bool {
+	named := false
+	for _, parameter := range []struct {
+		change *string
+		value  *string
+	}{
+		{c.Source, &campaign.Source}, {c.Medium, &campaign.Medium}, {c.Name, &campaign.Name},
+		{c.Term, &campaign.Term}, {c.Content, &campaign.Content},
+	} {
+		if parameter.change != nil {
+			*parameter.value = *parameter.change
+			named = true
+		}
+	}
+	return named
 }
 
 // Update applies a change to a link of a workspace and returns the link. A
@@ -35,7 +68,7 @@ type Change struct {
 func (s *Store) Update(ctx context.Context, workspaceID, id string, change Change) (Link, error) {
 	return s.modify(ctx, workspaceID, id, func(ctx context.Context, tx pgx.Tx, current Link) (Link, error) {
 		next := current
-		if change.Destination != nil || change.Campaign != nil {
+		if retagged := change.Campaign.apply(&next.Campaign); change.Destination != nil || retagged {
 			destination := current.Destination
 			if change.Destination != nil {
 				policy, err := s.policy(ctx, tx, current.WorkspaceID)
@@ -45,9 +78,6 @@ func (s *Store) Update(ctx context.Context, workspaceID, id string, change Chang
 				if destination, err = ParseDestination(*change.Destination, policy); err != nil {
 					return Link{}, err
 				}
-			}
-			if change.Campaign != nil {
-				next.Campaign = *change.Campaign
 			}
 			resolved, err := Resolve(destination, next.Campaign)
 			if err != nil {
@@ -69,6 +99,9 @@ func (s *Store) Update(ctx context.Context, workspaceID, id string, change Chang
 			next.ExpiresAt = nil
 		case change.ExpiresAt != nil:
 			next.ExpiresAt = change.ExpiresAt
+		}
+		if err := checkDescription(next.Title, next.Tags); err != nil {
+			return Link{}, err
 		}
 		return next, nil
 	})
