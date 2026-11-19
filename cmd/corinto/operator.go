@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/majimtor/corinto/internal/auth"
+	"github.com/majimtor/corinto/internal/ingest"
 	"github.com/majimtor/corinto/internal/limits"
 	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/postgres"
@@ -28,6 +29,7 @@ actions:
   revoke-key        --key ID
   block-link        --identifier IDENTIFIER
   block-workspace   --workspace ID
+  retry-dead-letters  --event ID | --all
 
 An action prints one JSON object on standard output and logs on standard
 error. issue-key prints the key once: only a hash of its secret is stored.
@@ -35,6 +37,9 @@ PREFIX is a destination without query or fragment, such as
 https://docs.example.com/guides. TIME is written as 2027-01-31T00:00:00Z.
 IDENTIFIER is what follows the redirect domain in a short link.
 block-workspace also blocks the links of the workspace and revokes its keys.
+retry-dead-letters sends back to the inbox an event that failed on every
+attempt, or all of them, with their attempts whole again. The worker logs
+the ID of an event when it sets it aside.
 `
 
 // usageError is a command line the operator has to write again. It is told
@@ -61,11 +66,12 @@ func runOperator(ctx context.Context, args []string, getenv func(string) string,
 		return usageError{"an action is missing"}
 	}
 	parse, known := map[string]func([]string, *environment) (action, error){
-		"create-workspace": parseCreateWorkspace,
-		"issue-key":        parseIssueKey,
-		"revoke-key":       parseRevokeKey,
-		"block-link":       parseBlockLink,
-		"block-workspace":  parseBlockWorkspace,
+		"create-workspace":   parseCreateWorkspace,
+		"issue-key":          parseIssueKey,
+		"revoke-key":         parseRevokeKey,
+		"block-link":         parseBlockLink,
+		"block-workspace":    parseBlockWorkspace,
+		"retry-dead-letters": parseRetryDeadLetters,
 	}[args[0]]
 	if !known {
 		return usageError{fmt.Sprintf("there is no action %q", args[0])}
@@ -326,5 +332,37 @@ func parseBlockWorkspace(args []string, _ *environment) (action, error) {
 			}{*id, name, links, keys},
 			logged: []any{"workspace", *id, "links", links, "keys", keys},
 		}, nil
+	}, nil
+}
+
+func parseRetryDeadLetters(args []string, _ *environment) (action, error) {
+	set := options("retry-dead-letters")
+	id := set.String("event", "", "")
+	all := set.Bool("all", false, "")
+	if err := read(set, args); err != nil {
+		return nil, err
+	}
+	// One event or all of them, and the operator says which.
+	if (*id == "") == !*all {
+		return nil, usageError{"retry-dead-letters needs --event or --all, and not both"}
+	}
+
+	return func(ctx context.Context, pool *pgxpool.Pool) (outcome, error) {
+		type sent struct {
+			Events int `json:"events"`
+		}
+		// Sending events back logs nothing of its own.
+		inbox := ingest.NewStore(pool, slog.New(slog.DiscardHandler))
+		if *all {
+			events, err := inbox.RetryDeadLetters(ctx)
+			if err != nil {
+				return outcome{}, err
+			}
+			return outcome{printed: sent{events}, logged: []any{"events", events}}, nil
+		}
+		if err := inbox.RetryDeadLetter(ctx, *id); err != nil {
+			return outcome{}, fmt.Errorf("send the event back to the inbox: %w", err)
+		}
+		return outcome{printed: sent{1}, logged: []any{"events", 1, "event", *id}}, nil
 	}, nil
 }

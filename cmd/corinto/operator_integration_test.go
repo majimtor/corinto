@@ -9,17 +9,22 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/majimtor/corinto/contract/contracttest"
 	"github.com/majimtor/corinto/internal/auth"
+	"github.com/majimtor/corinto/internal/classify"
+	"github.com/majimtor/corinto/internal/ingest"
 	"github.com/majimtor/corinto/internal/link"
+	"github.com/majimtor/corinto/internal/postgres"
 	"github.com/majimtor/corinto/internal/postgres/postgrestest"
 )
 
@@ -528,5 +533,129 @@ func TestALinkCreatedThroughTheAPIIsTheOneTheOperatorBlocks(t *testing.T) {
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("the process did not stop")
+	}
+}
+
+// The sixth action: the operator sends back to the inbox the events that
+// failed on every attempt, one or all of them, and the worker processes
+// them (docs/delivery-semantics.md, statement 5).
+func TestTheOperatorSendsDeadLettersBackToTheInbox(t *testing.T) {
+	env, pool := migrated(t)
+	workspaceID, _ := printed(t, env, "create-workspace", "--name", "Acme")["id"].(string)
+	var linkID string
+	if err := pool.QueryRow(t.Context(),
+		`INSERT INTO links (workspace_id, domain, identifier, destination, resolved_destination)
+		 VALUES ($1, $2, 'k7m2xq9d', 'https://example.com/', 'https://example.com/') RETURNING id::text`,
+		workspaceID, redirectDomain).Scan(&linkID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Three events that the redirect served, accepted, and failed on every
+	// attempt of a worker.
+	inbox := ingest.NewStore(pool, slog.New(slog.DiscardHandler))
+	events := make([]ingest.Event, 3)
+	for i := range events {
+		events[i] = ingest.Event{
+			ID: uuid.NewV7().String(), LinkID: linkID, WorkspaceID: workspaceID,
+			OccurredAt: time.Date(2026, time.November, 19, 12, i, 0, 0, time.UTC), Outcome: ingest.OutcomeRedirected, Method: http.MethodGet,
+			Classification: classify.Classification{
+				Class: classify.ClassPresumedHuman, Rule: "presumed_human", Version: 1,
+				Device: classify.DeviceDesktop, Browser: classify.BrowserChrome,
+			},
+		}
+	}
+	if settled, err := inbox.Accept(t.Context(), events); err != nil || settled != 3 {
+		t.Fatalf("Accept settled %d events with the error %v", settled, err)
+	}
+	failing, err := pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = failing.Rollback(context.WithoutCancel(t.Context())) }()
+	for _, event := range events {
+		for range ingest.MaxAttempts {
+			if _, err := ingest.Fail(t.Context(), failing, event, postgres.Refusal{Code: "23514", Constraint: "a_constraint"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := failing.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	state := func() (dead, counted, pending int) {
+		t.Helper()
+		err := pool.QueryRow(t.Context(),
+			`SELECT (SELECT count(*) FROM event_dead_letters),
+			        (SELECT coalesce(sum(value), 0) FROM pipeline_counters WHERE name = 'dead_lettered'),
+			        (SELECT count(*) FROM event_inbox WHERE processed_at IS NULL AND attempts = 0 AND next_attempt_at IS NULL)`).
+			Scan(&dead, &counted, &pending)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return dead, counted, pending
+	}
+	if dead, counted, pending := state(); dead != 3 || counted != 3 || pending != 0 {
+		t.Fatalf("%d dead letters, %d counted and %d pending; want 3, 3 and none", dead, counted, pending)
+	}
+
+	// One, by the identifier the worker logged.
+	code, stdout, log := operate(t, env, "retry-dead-letters", "--event", events[1].ID)
+	if code != exitOK || strings.TrimSpace(stdout) != `{"events":1}` {
+		t.Fatalf("retry-dead-letters --event: exit code = %d, printed %q; log: %s", code, stdout, log)
+	}
+	if !strings.Contains(log, `"action":"retry-dead-letters"`) || !strings.Contains(log, `"event":"`+events[1].ID+`"`) {
+		t.Errorf("the log does not name the action and its event: %s", log)
+	}
+	if dead, counted, pending := state(); dead != 2 || counted != 2 || pending != 1 {
+		t.Fatalf("%d dead letters, %d counted and %d pending; want 2, 2 and 1", dead, counted, pending)
+	}
+
+	// What is not a dead letter is refused, and nothing is printed.
+	for name, id := range map[string]string{
+		"the event that was sent back": events[1].ID, "an identifier of nothing": "0193a000-0000-7000-8000-0000000000ff",
+		"something that is not an identifier": "not-an-identifier",
+	} {
+		code, stdout, log := operate(t, env, "retry-dead-letters", "--event", id)
+		if code != exitFailure || stdout != "" || !strings.Contains(log, "there is no such dead-lettered event") {
+			t.Errorf("%s: exit code = %d, printed %q; log: %s", name, code, stdout, log)
+		}
+	}
+	if dead, counted, pending := state(); dead != 2 || counted != 2 || pending != 1 {
+		t.Fatalf("%d dead letters, %d counted and %d pending; want 2, 2 and 1", dead, counted, pending)
+	}
+
+	// All the rest, and then there are none.
+	if got := printed(t, env, "retry-dead-letters", "--all")["events"]; got != float64(2) {
+		t.Fatalf("retry-dead-letters --all sent %v events back, want 2", got)
+	}
+	if dead, counted, pending := state(); dead != 0 || counted != 0 || pending != 3 {
+		t.Fatalf("%d dead letters, %d counted and %d pending; want none, none and 3", dead, counted, pending)
+	}
+	if got := printed(t, env, "retry-dead-letters", "--all")["events"]; got != float64(0) {
+		t.Errorf("with no dead letters, retry-dead-letters --all sent %v events back", got)
+	}
+
+	// A worker processes them like any other event.
+	process(t, env, "worker")
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var figures, left int
+		if err := pool.QueryRow(t.Context(),
+			`SELECT (SELECT coalesce(sum(events), 0) FROM link_hourly), (SELECT count(*) FROM event_inbox WHERE processed_at IS NULL)`).
+			Scan(&figures, &left); err != nil {
+			t.Fatal(err)
+		}
+		if figures == 3 && left == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("after 15 seconds the figures have %d events and %d are pending, want 3 and none", figures, left)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	// Accepted once, whatever happened to them afterwards.
+	var accepted int
+	if err := pool.QueryRow(t.Context(), `SELECT coalesce(sum(value), 0) FROM pipeline_counters WHERE name = 'accepted'`).Scan(&accepted); err != nil || accepted != 3 {
+		t.Errorf("%d events are counted as accepted (%v), want 3", accepted, err)
 	}
 }
