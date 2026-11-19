@@ -35,5 +35,7 @@ Changes to the contracts in this directory, newest first. A change that
 - The redirect contract, in `redirect.md`: it was a table of `PLAN.md`
   section 3 until now. New with it: the `Host` of a request plays no part,
   and what the root and `/.well-known/security.txt` answer.
+- The rate limit of the redirect: what counts as one client, that every
+  request counts, and the unit of `Retry-After`.
 - The skeleton of the management API: OpenAPI 3.1, the API key scheme and
   the shape of errors. No operations yet.

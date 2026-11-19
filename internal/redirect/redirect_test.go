@@ -10,10 +10,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/majimtor/corinto/internal/limits"
 	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/redirect"
 	"github.com/majimtor/corinto/internal/resolve"
@@ -39,15 +42,30 @@ type answer struct {
 }
 
 // host starts the host of the short links over a list of links and returns
-// its address.
+// its address. Its clock stands still, so a test has the forty requests a
+// client address makes at once and no more.
 func host(t *testing.T, served ...link.Served) string {
+	t.Helper()
+	return hostAt(t, func() time.Time { return now }, "", served...)
+}
+
+// hostAt starts the host with a clock and a list of trusted proxies.
+func hostAt(t *testing.T, clock func() time.Time, proxies string, served ...link.Served) string {
 	t.Helper()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	copied := resolve.New(links(served), logger)
 	if err := copied.Load(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	server := httptest.NewServer(redirect.New(copied, logger, func() time.Time { return now }))
+	trusted, err := limits.ParseProxies(proxies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := redirect.New(t.Context(), redirect.Settings{Links: copied, Logger: logger, Now: clock, TrustedProxies: trusted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	return server.URL
 }
@@ -311,7 +329,12 @@ func TestTheHostOfARequestPlaysNoPart(t *testing.T) {
 func TestAPanicIsA500ThatLogsNothingOfTheRequest(t *testing.T) {
 	written := &bytes.Buffer{}
 	// A handler without its copy of the links: the lookup panics.
-	broken := redirect.New(nil, slog.New(slog.NewJSONHandler(written, nil)), func() time.Time { return now })
+	broken, err := redirect.New(t.Context(), redirect.Settings{
+		Logger: slog.New(slog.NewJSONHandler(written, nil)), Now: func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	server := httptest.NewServer(broken)
 	t.Cleanup(server.Close)
 
@@ -328,4 +351,145 @@ func TestAPanicIsA500ThatLogsNothingOfTheRequest(t *testing.T) {
 	if strings.Contains(log, "sentinel") || strings.Contains(log, "127.0.0.1") {
 		t.Errorf("the log carries something of the request: %s", log)
 	}
+}
+
+// moving is a clock that a test moves.
+type moving struct {
+	mu sync.Mutex
+	at time.Time
+}
+
+func (m *moving) read() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.at
+}
+
+func (m *moving) advance(by time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.at = m.at.Add(by)
+}
+
+// limited starts the host behind a proxy on the loopback interface, which
+// is where these tests call from: the address of a client is then whatever
+// a request says in its forwarding header.
+func limited(t *testing.T) (string, *moving) {
+	t.Helper()
+	clock := &moving{at: now}
+	return hostAt(t, clock.read, "127.0.0.1", catalogue()...), clock
+}
+
+// from asks for a path as a client address.
+func from(t *testing.T, address, method, url string) answer {
+	t.Helper()
+	return ask(t, method, url, "X-Forwarded-For", address)
+}
+
+// A client address makes twenty requests a second, and forty at once after
+// being idle. Past that the answer is a 429 that says how long to wait and
+// nothing else.
+func TestAClientAddressIsToldToWaitPastItsRate(t *testing.T) {
+	url, clock := limited(t)
+	const client, neighbour = "203.0.113.7", "203.0.113.8"
+
+	for i := range 40 {
+		if got := from(t, client, http.MethodGet, url+"/k7m2xq9d"); got.status != http.StatusFound {
+			t.Fatalf("request %d of the burst = %d, want 302", i+1, got.status)
+		}
+	}
+	refused := from(t, client, http.MethodGet, url+"/k7m2xq9d")
+	if refused.status != http.StatusTooManyRequests || refused.header.Get("Retry-After") != "1" {
+		t.Errorf("request 41 = %d with Retry-After %q, want 429 and 1", refused.status, refused.header.Get("Retry-After"))
+	}
+	if len(refused.body) != 0 || refused.header.Get("Location") != "" || refused.header.Get("Content-Security-Policy") != "" {
+		t.Errorf("the 429 carries a body of %d bytes or leads to %q", len(refused.body), refused.header.Get("Location"))
+	}
+	if got := from(t, neighbour, http.MethodGet, url+"/k7m2xq9d"); got.status != http.StatusFound {
+		t.Errorf("another address = %d, want 302", got.status)
+	}
+
+	// One request is earned back every fiftieth of a second, and a refusal
+	// takes nothing.
+	clock.advance(50 * time.Millisecond)
+	if got := from(t, client, http.MethodGet, url+"/k7m2xq9d"); got.status != http.StatusFound {
+		t.Errorf("fifty milliseconds later = %d, want 302", got.status)
+	}
+	if got := from(t, client, http.MethodGet, url+"/k7m2xq9d"); got.status != http.StatusTooManyRequests {
+		t.Errorf("and the next one = %d, want 429", got.status)
+	}
+	// A second later twenty fit, not forty.
+	clock.advance(time.Second)
+	served := 0
+	for served < 100 && from(t, client, http.MethodGet, url+"/k7m2xq9d").status == http.StatusFound {
+		served++
+	}
+	if served != 20 {
+		t.Errorf("a second later %d requests were served, want 20", served)
+	}
+}
+
+// Every request counts, whatever it asks for and whatever it is answered:
+// whoever tries identifiers is told to wait, and then a link that exists
+// does not answer either.
+func TestEveryRequestCountsAgainstItsAddress(t *testing.T) {
+	url, _ := limited(t)
+	const guesser = "203.0.113.9"
+	asked := []struct {
+		method string
+		path   string
+		want   int
+	}{
+		{http.MethodGet, "/bcdfghjk", http.StatusNotFound},
+		{http.MethodGet, "/disabled", http.StatusNotFound},
+		{http.MethodPost, "/k7m2xq9d", http.StatusMethodNotAllowed},
+		{http.MethodGet, "/", http.StatusFound},
+		{http.MethodGet, "/.well-known/security.txt", http.StatusOK},
+		{http.MethodHead, "/k7m2xq9d", http.StatusFound},
+		{http.MethodGet, "/a/b/c", http.StatusNotFound},
+		{http.MethodDelete, "/", http.StatusMethodNotAllowed},
+	}
+	for i := range 40 {
+		request := asked[i%len(asked)]
+		if got := from(t, guesser, request.method, url+request.path); got.status != request.want {
+			t.Fatalf("request %d, %s %s = %d, want %d", i+1, request.method, request.path, got.status, request.want)
+		}
+	}
+	for _, request := range asked {
+		if got := from(t, guesser, request.method, url+request.path); got.status != http.StatusTooManyRequests {
+			t.Errorf("past the rate, %s %s = %d, want 429", request.method, request.path, got.status)
+		}
+	}
+}
+
+// One client is given a whole IPv6 network, and a forwarding header is
+// believed only from a proxy that is trusted.
+func TestWhatCountsAsOneClient(t *testing.T) {
+	t.Run("the addresses of one IPv6 network", func(t *testing.T) {
+		url, _ := limited(t)
+		for i := range 40 {
+			address := "2001:db8:1:2::" + strconv.Itoa(i+1)
+			if got := from(t, address, http.MethodGet, url+"/k7m2xq9d"); got.status != http.StatusFound {
+				t.Fatalf("request %d = %d, want 302", i+1, got.status)
+			}
+		}
+		if got := from(t, "2001:db8:1:2:ffff::99", http.MethodGet, url+"/k7m2xq9d"); got.status != http.StatusTooManyRequests {
+			t.Errorf("another address of the same network = %d, want 429", got.status)
+		}
+		if got := from(t, "2001:db8:1:3::1", http.MethodGet, url+"/k7m2xq9d"); got.status != http.StatusFound {
+			t.Errorf("an address of another network = %d, want 302", got.status)
+		}
+	})
+	t.Run("the connection, when no proxy is trusted", func(t *testing.T) {
+		// Each request names another client; they all come from one.
+		url := host(t, catalogue()...)
+		for i := range 40 {
+			if got := from(t, "192.0.2."+strconv.Itoa(i+1), http.MethodGet, url+"/k7m2xq9d"); got.status != http.StatusFound {
+				t.Fatalf("request %d = %d, want 302", i+1, got.status)
+			}
+		}
+		if got := from(t, "192.0.2.200", http.MethodGet, url+"/k7m2xq9d"); got.status != http.StatusTooManyRequests {
+			t.Errorf("the forty-first request of the connection = %d, want 429", got.status)
+		}
+	})
 }

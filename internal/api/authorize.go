@@ -68,27 +68,33 @@ func requirementOf(operation *openapi3.Operation) (requirement, error) {
 type gate struct {
 	keys      Authenticator
 	trusted   []netip.Prefix
-	addresses *addresses
+	addresses *limits.Addresses
 	// failures counts the requests without a valid key of each client
 	// address; requests and writes count what each key does.
-	failures, requests, writes *limiter
+	failures, requests, writes *limits.Limiter
 }
 
 func newGate(ctx context.Context, keys Authenticator, trusted []netip.Prefix, now func() time.Time) (*gate, error) {
-	hashed, err := newAddresses()
+	hashed, err := limits.NewAddresses()
 	if err != nil {
 		return nil, err
 	}
 	g := &gate{
 		keys: keys, trusted: trusted, addresses: hashed,
-		failures: newLimiter(limits.APIFailedAuthenticationsPerMinute, now),
-		requests: newLimiter(limits.APIRequestsPerMinute, now),
-		writes:   newLimiter(limits.APIWritesPerMinute, now),
+		failures: perMinute(limits.APIFailedAuthenticationsPerMinute, now),
+		requests: perMinute(limits.APIRequestsPerMinute, now),
+		writes:   perMinute(limits.APIWritesPerMinute, now),
 	}
-	for _, counter := range []*limiter{g.failures, g.requests, g.writes} {
-		go counter.sweep(ctx)
+	for _, counter := range []*limits.Limiter{g.failures, g.requests, g.writes} {
+		go counter.Sweep(ctx)
 	}
 	return g, nil
+}
+
+// perMinute returns a limiter for one of the limits of the API, which are
+// all a number of events in a minute with the same number at once.
+func perMinute(events int, now func() time.Time) *limits.Limiter {
+	return limits.NewLimiter(events, time.Minute, events, now)
 }
 
 // principalKey is the key under which the principal of a request travels in
@@ -109,8 +115,8 @@ func (g *gate) guard(asked requirement, next http.Handler) http.Handler {
 		// An address that has just failed too often is refused before its
 		// key is looked at, valid or not: otherwise the limit would only
 		// count the guesses and still answer each one.
-		client := g.addresses.key(clientAddress(r, g.trusted))
-		if wait := g.failures.wait(client); wait > 0 {
+		client := g.addresses.Key(limits.ClientAddress(r, g.trusted))
+		if wait := g.failures.Wait(client); wait > 0 {
 			tooMany(w, wait)
 			return
 		}
@@ -121,7 +127,7 @@ func (g *gate) guard(asked requirement, next http.Handler) http.Handler {
 		}
 		switch {
 		case errors.Is(err, auth.ErrInvalidKey):
-			g.failures.take(client)
+			g.failures.Take(client)
 			// No key, a malformed one, one that does not exist, a wrong
 			// secret, a revoked key, an expired one.
 			unauthenticated(w)
@@ -134,12 +140,12 @@ func (g *gate) guard(asked requirement, next http.Handler) http.Handler {
 		}
 		noteOf(ctx).key = principal.KeyID
 
-		if wait := g.requests.take(principal.KeyID); wait > 0 {
+		if wait := g.requests.Take(principal.KeyID); wait > 0 {
 			tooMany(w, wait)
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			if wait := g.writes.take(principal.KeyID); wait > 0 {
+			if wait := g.writes.Take(principal.KeyID); wait > 0 {
 				tooMany(w, wait)
 				return
 			}
@@ -165,7 +171,6 @@ func bearer(header string) (string, bool) {
 // tooMany answers that a limit was reached, with the whole seconds after
 // which the next request has room.
 func tooMany(w http.ResponseWriter, wait time.Duration) {
-	seconds := int(math.Ceil(wait.Seconds()))
-	w.Header().Set("Retry-After", strconv.Itoa(max(1, seconds)))
+	w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
 	writeProblem(w, http.StatusTooManyRequests, CodeRateLimited, "Too many requests in a minute.")
 }

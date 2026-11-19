@@ -153,3 +153,22 @@ func TestRedirectRefusesToStartWithoutTheDatabase(t *testing.T) {
 		t.Errorf("the process listened without its links, or logged the password: %q", stderr.String())
 	}
 }
+
+func TestRedirectRefusesAListOfProxiesItCannotRead(t *testing.T) {
+	values := map[string]string{
+		"CORINTO_DATABASE_URL":    "postgres://corinto@127.0.0.1:1/corinto?connect_timeout=1",
+		"CORINTO_REDIRECT_ADDR":   "127.0.0.1:0",
+		"CORINTO_HEALTH_ADDR":     "127.0.0.1:0",
+		"CORINTO_REDIRECT_DOMAIN": "go.example.dev",
+		"CORINTO_TRUSTED_PROXIES": "the-load-balancer",
+	}
+	var stderr bytes.Buffer
+	if code := run(t.Context(), []string{"redirect"}, environmentOf(values), io.Discard, &stderr); code != exitFailure {
+		t.Errorf("exit code = %d, want %d", code, exitFailure)
+	}
+	for _, want := range []string{"CORINTO_TRUSTED_PROXIES", "the-load-balancer"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr does not say %q: %q", want, stderr.String())
+		}
+	}
+}
