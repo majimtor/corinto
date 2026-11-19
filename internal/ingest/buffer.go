@@ -35,8 +35,8 @@ const (
 // Counter names a count taken along the path of an event.
 type Counter string
 
-// The counters that are counted in the memory of a process. The count of
-// the events accepted is not one of them: the insert counts it.
+// The counters that the code names. The count of the events accepted is
+// not one of them: the insert counts it.
 const (
 	// CounterNotFound counts the requests that named no link: a deleted or
 	// unknown one, or a path outside the grammar.
@@ -46,6 +46,9 @@ const (
 	// counterServed counts the responses that owe an event. Record counts
 	// it, whether or not the event fits in the buffer.
 	counterServed Counter = "served"
+	// counterProcessed counts the events added to the aggregates.
+	// MarkProcessed counts it, in the transaction that adds them.
+	counterProcessed Counter = "processed"
 )
 
 // Count is an amount to add to a counter of a UTC day.
