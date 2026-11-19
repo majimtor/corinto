@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"strings"
 	"testing"
+	"time"
 )
 
 // environmentOf returns a getenv that knows only the given variables.
@@ -119,6 +121,48 @@ func TestAPIRefusesAListOfProxiesItCannotRead(t *testing.T) {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("stderr does not say %q: %q", want, stderr.String())
 		}
+	}
+}
+
+func TestWorkerNamesEveryMissingVariable(t *testing.T) {
+	var stderr bytes.Buffer
+	if code := run(t.Context(), []string{"worker"}, environmentOf(nil), io.Discard, &stderr); code != exitFailure {
+		t.Errorf("exit code = %d, want %d", code, exitFailure)
+	}
+	for _, name := range []string{"CORINTO_DATABASE_URL", "CORINTO_HEALTH_ADDR"} {
+		if !strings.Contains(stderr.String(), name) {
+			t.Errorf("stderr does not name %s: %q", name, stderr.String())
+		}
+	}
+	// It reads nothing of the other processes.
+	for _, name := range []string{"CORINTO_API_ADDR", "CORINTO_REDIRECT_ADDR", "CORINTO_REDIRECT_DOMAIN"} {
+		if strings.Contains(stderr.String(), name) {
+			t.Errorf("stderr names %s, which the worker does not read: %q", name, stderr.String())
+		}
+	}
+}
+
+// A worker that cannot check its schema must not touch the events.
+func TestWorkerRefusesToStartWithoutTheDatabase(t *testing.T) {
+	const sentinel = "sentinel-not-a-password"
+	values := map[string]string{
+		// Nothing listens on port 1 of the loopback interface.
+		"CORINTO_DATABASE_URL": "postgres://corinto:" + sentinel + "@127.0.0.1:1/corinto?connect_timeout=1",
+		"CORINTO_HEALTH_ADDR":  "127.0.0.1:0",
+	}
+	// A worker that started would run until it is stopped: the time it is
+	// given here is the one a refusal never needs.
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	var stderr bytes.Buffer
+	if code := run(ctx, []string{"worker"}, environmentOf(values), io.Discard, &stderr); code != exitFailure {
+		t.Errorf("exit code = %d, want %d", code, exitFailure)
+	}
+	if !strings.Contains(stderr.String(), "schema version") {
+		t.Errorf("the log does not say that the schema could not be checked: %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "listening") || strings.Contains(stderr.String(), "consumed") || strings.Contains(stderr.String(), sentinel) {
+		t.Errorf("the process started without having checked the schema, or logged the password: %q", stderr.String())
 	}
 }
 

@@ -67,5 +67,18 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  worker:
+    build: *image
+    command: ["worker"]
+    environment:
+      CORINTO_DATABASE_URL: *database-url
+      CORINTO_HEALTH_ADDR: ":8081"
+    ports:
+      # The health endpoints of this process, next to the ones of the others.
+      - "127.0.0.1:8084:8081"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
 volumes:
   db-data:

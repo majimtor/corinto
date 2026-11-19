@@ -10,9 +10,10 @@
   // that the stack is up whenever the editor is.
   "postStartCommand": "make up",
 
-  // The ports of the two processes: the management API and the host of the
-  // short links, each with its /livez and /readyz next to it.
-  "forwardPorts": [8080, 8081, 8082, 8083],
+  // The ports of the processes: the management API and the host of the
+  // short links, each with its /livez and /readyz next to it, and the
+  // /livez and /readyz of the worker.
+  "forwardPorts": [8080, 8081, 8082, 8083, 8084],
   "portsAttributes": {
     "8080": {
       "label": "Management API",
@@ -29,6 +30,10 @@
     },
     "8083": {
       "label": "Health endpoints of the short links",
+      "onAutoForward": "silent"
+    },
+    "8084": {
+      "label": "Health endpoints of the worker",
       "onAutoForward": "silent"
     }
   }

@@ -27,6 +27,8 @@ commands:
             health endpoints on another
   redirect  run the redirect process: the host of the short links on one
             port and its health endpoints on another
+  worker    run the worker process: it adds the accesses to the metrics of
+            their links, and has its health endpoints on a port
   migrate   apply the migrations the database does not have yet, and exit
   operator  act on the database as the operator; run it without an action
             to see the actions
@@ -65,6 +67,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		err = runAPI(ctx, getenv, logger)
 	case args[0] == "redirect":
 		err = runRedirect(ctx, getenv, logger)
+	case args[0] == "worker":
+		err = runWorker(ctx, getenv, logger)
 	case args[0] == "migrate":
 		err = runMigrate(ctx, getenv, logger)
 	default:

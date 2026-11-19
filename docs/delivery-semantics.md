@@ -158,5 +158,6 @@ it does when the database is absent at start, is in PLAN.md section 3.
 | Flush | Every second, or every 500 events |
 | Last flush when the process stops | At most 3 seconds |
 | Consumer batch | 500 events |
+| Consumer poll | Every second, and at once after a whole batch |
 | Attempts per event | 5 |
 | Waits between attempts | 1 s, 5 s, 30 s, 2 min |
