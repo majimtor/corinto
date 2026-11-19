@@ -213,7 +213,7 @@ func TestDeleteLeavesATombstoneThatKeepsTheIdentifier(t *testing.T) {
 	if _, err := store.Get(t.Context(), owner, created.ID); !errors.Is(err, link.ErrNotFound) {
 		t.Errorf("read after delete: err = %v, want %v", err, link.ErrNotFound)
 	}
-	if links, err := store.List(t.Context(), owner, "", link.MaxPage); err != nil || len(links) != 0 {
+	if links, _, err := store.List(t.Context(), owner, "", link.MaxPage); err != nil || len(links) != 0 {
 		t.Errorf("list after delete: %d links, %v; want none", len(links), err)
 	}
 	if err := store.Delete(t.Context(), owner, created.ID); !errors.Is(err, link.ErrNotFound) {

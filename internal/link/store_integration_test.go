@@ -7,6 +7,8 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -340,21 +342,25 @@ func TestListPagesInTheOrderOfCreationWithoutRepeatingOrSkipping(t *testing.T) {
 		create(stranger)
 	}
 
-	var got []string
+	var (
+		got   []string
+		pages []int
+	)
 	after := ""
 	for page := 1; ; page++ {
-		links, err := store.List(t.Context(), owner, after, 3)
+		links, more, err := store.List(t.Context(), owner, after, 4)
 		if err != nil {
 			t.Fatal(err)
-		}
-		if len(links) == 0 {
-			break
 		}
 		for _, l := range links {
 			if l.WorkspaceID != owner {
 				t.Fatalf("page %d holds a link of another workspace", page)
 			}
 			got = append(got, l.ID)
+		}
+		pages = append(pages, len(links))
+		if !more {
+			break
 		}
 		after = links[len(links)-1].ID
 		if page == 1 {
@@ -365,16 +371,72 @@ func TestListPagesInTheOrderOfCreationWithoutRepeatingOrSkipping(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("listed %v\nwant   %v", got, want)
 	}
+	// Eight links in pages of four: the second page is the last and says
+	// so, with no empty page after it.
+	if !slices.Equal(pages, []int{4, 4}) {
+		t.Errorf("the pages held %v links, want 4 and 4", pages)
+	}
 
 	for _, limit := range []int{0, -1, link.MaxPage + 1} {
-		if _, err := store.List(t.Context(), owner, "", limit); !errors.Is(err, link.ErrPage) {
+		if _, _, err := store.List(t.Context(), owner, "", limit); !errors.Is(err, link.ErrPage) {
 			t.Errorf("limit %d: err = %v, want %v", limit, err, link.ErrPage)
 		}
 	}
-	if _, err := store.List(t.Context(), owner, "not-an-identifier", 3); !errors.Is(err, link.ErrPage) {
+	if _, _, err := store.List(t.Context(), owner, "not-an-identifier", 3); !errors.Is(err, link.ErrPage) {
 		t.Errorf("a start that is not an identifier: err = %v, want %v", err, link.ErrPage)
 	}
-	if full, err := store.List(t.Context(), owner, "", link.MaxPage); err != nil || len(full) != 8 {
-		t.Errorf("the largest page: %d links, %v; want 8", len(full), err)
+	if full, more, err := store.List(t.Context(), owner, "", link.MaxPage); err != nil || len(full) != 8 || more {
+		t.Errorf("the largest page: %d links, more %v, %v; want 8 and no more", len(full), more, err)
+	}
+	if none, more, err := store.List(t.Context(), owner, want[len(want)-1], 4); err != nil || len(none) != 0 || more {
+		t.Errorf("after the last link: %d links, more %v, %v; want none", len(none), more, err)
+	}
+}
+
+func TestCreateBoundsWhatDescribesALink(t *testing.T) {
+	pool := database(t)
+	store := link.NewStore(pool, redirectDomain, rand.Reader)
+	owner := workspace(t, pool, "", "")
+	// A character of three bytes, so that the limits are seen to count
+	// characters.
+	wide := string(rune(0x4e2d))
+	many := make([]string, link.MaxTags+1)
+	for i := range many {
+		many[i] = "tag-" + strconv.Itoa(i)
+	}
+
+	cases := []struct {
+		name  string
+		draft link.Draft
+		want  error
+	}{
+		{"a title of 201 characters", link.Draft{Title: strings.Repeat(wide, link.MaxTitleLength+1)}, link.ErrTitle},
+		{"a title with a line break", link.Draft{Title: "Launch\nweek"}, link.ErrTitle},
+		{"a title that is not text", link.Draft{Title: string([]byte{'a', 0xff})}, link.ErrTitle},
+		{"21 tags", link.Draft{Tags: many}, link.ErrTags},
+		{"an empty tag", link.Draft{Tags: []string{"q4", ""}}, link.ErrTags},
+		{"a tag of 41 characters", link.Draft{Tags: []string{strings.Repeat(wide, link.MaxTagLength+1)}}, link.ErrTags},
+		{"a tag with a tab", link.Draft{Tags: []string{"q4\temail"}}, link.ErrTags},
+		{"a tag twice", link.Draft{Tags: []string{"q4", "email", "q4"}}, link.ErrTags},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			c.draft.Destination = "https://example.com/"
+			if created, err := store.Create(t.Context(), owner, c.draft); !errors.Is(err, c.want) || created.ID != "" {
+				t.Errorf("err = %v with the link %q, want %v and none", err, created.ID, c.want)
+			}
+		})
+	}
+	if links, _, err := store.List(t.Context(), owner, "", link.MaxPage); err != nil || len(links) != 0 {
+		t.Errorf("the refused creations stored %d links, %v", len(links), err)
+	}
+
+	widest := link.Draft{
+		Destination: "https://example.com/",
+		Title:       strings.Repeat(wide, link.MaxTitleLength),
+		Tags:        append(many[:link.MaxTags-1:link.MaxTags-1], strings.Repeat(wide, link.MaxTagLength)),
+	}
+	if _, err := store.Create(t.Context(), owner, widest); err != nil {
+		t.Errorf("the longest title and the most tags: err = %v, want none", err)
 	}
 }

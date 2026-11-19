@@ -427,3 +427,75 @@ func TestAKeyIssuedByTheOperatorOpensTheAPI(t *testing.T) {
 		t.Fatal("the process did not stop")
 	}
 }
+
+// A link created through the API is the link the operator blocks: the two
+// commands and the database between them, end to end.
+func TestALinkCreatedThroughTheAPIIsTheOneTheOperatorBlocks(t *testing.T) {
+	env, _ := migrated(t)
+	workspaceID, _ := printed(t, env, "create-workspace", "--name", "Acme")["id"].(string)
+	credential, _ := printed(t, env, "issue-key", "--workspace", workspaceID, "--name", "Deploy pipeline",
+		"--scope", "links:read", "--scope", "links:write")["key"].(string)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	stderr := &lockedBuffer{}
+	exited := make(chan int, 1)
+	go func() { exited <- run(ctx, []string{"api"}, env, io.Discard, stderr) }()
+	api := "http://" + announced(t, stderr, "api listening")
+
+	client := contracttest.Client(t)
+	call := func(method, path, body string) (int, map[string]any) {
+		t.Helper()
+		var sent io.Reader
+		if body != "" {
+			sent = strings.NewReader(body)
+		}
+		request, err := http.NewRequestWithContext(t.Context(), method, api+path, sent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+credential)
+		if body != "" {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = response.Body.Close() }()
+		var answered map[string]any
+		if err := json.NewDecoder(response.Body).Decode(&answered); err != nil {
+			t.Fatal(err)
+		}
+		return response.StatusCode, answered
+	}
+
+	status, created := call(http.MethodPost, "/v1/links", `{"destination":"https://example.com/landing","campaign":{"source":"newsletter"}}`)
+	if status != http.StatusCreated || created["domain"] != redirectDomain || created["state"] != "active" ||
+		created["resolved_destination"] != "https://example.com/landing?utm_source=newsletter" {
+		t.Fatalf("POST /v1/links = %d %v", status, created)
+	}
+	id, _ := created["id"].(string)
+	identifier, _ := created["identifier"].(string)
+
+	blocked := printed(t, env, "block-link", "--identifier", identifier)
+	if blocked["id"] != id || blocked["workspace_id"] != workspaceID {
+		t.Errorf("block-link printed %v, want the link %s of the workspace %s", blocked, id, workspaceID)
+	}
+	if status, read := call(http.MethodGet, "/v1/links/"+id, ""); status != http.StatusOK || read["state"] != "blocked" {
+		t.Errorf("GET of the link after the block = %d with the state %v, want 200 and blocked", status, read["state"])
+	}
+	if status, listed := call(http.MethodGet, "/v1/links", ""); status != http.StatusOK || len(listed["items"].([]any)) != 1 {
+		t.Errorf("GET /v1/links = %d %v, want the one link", status, listed)
+	}
+
+	cancel()
+	select {
+	case code := <-exited:
+		if code != exitOK {
+			t.Errorf("exit code = %d after a clean stop; log: %s", code, stderr.String())
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the process did not stop")
+	}
+}

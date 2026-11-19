@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math"
 	"net/http"
 	"net/netip"
@@ -73,16 +72,15 @@ type gate struct {
 	// failures counts the requests without a valid key of each client
 	// address; requests and writes count what each key does.
 	failures, requests, writes *limiter
-	logger                     *slog.Logger
 }
 
-func newGate(ctx context.Context, keys Authenticator, trusted []netip.Prefix, logger *slog.Logger, now func() time.Time) (*gate, error) {
+func newGate(ctx context.Context, keys Authenticator, trusted []netip.Prefix, now func() time.Time) (*gate, error) {
 	hashed, err := newAddresses()
 	if err != nil {
 		return nil, err
 	}
 	g := &gate{
-		keys: keys, trusted: trusted, addresses: hashed, logger: logger,
+		keys: keys, trusted: trusted, addresses: hashed,
 		failures: newLimiter(limits.APIFailedAuthenticationsPerMinute, now),
 		requests: newLimiter(limits.APIRequestsPerMinute, now),
 		writes:   newLimiter(limits.APIWritesPerMinute, now),
@@ -124,17 +122,14 @@ func (g *gate) guard(asked requirement, next http.Handler) http.Handler {
 		switch {
 		case errors.Is(err, auth.ErrInvalidKey):
 			g.failures.take(client)
-			// One answer for every cause: no key, a malformed one, one that
-			// does not exist, a wrong secret, a revoked key, an expired one.
-			w.Header().Set("WWW-Authenticate", "Bearer")
-			writeProblem(w, http.StatusUnauthorized, CodeUnauthenticated,
-				"The request needs a valid API key in the Authorization header.")
+			// No key, a malformed one, one that does not exist, a wrong
+			// secret, a revoked key, an expired one.
+			unauthenticated(w)
 			return
 		case err != nil:
-			// The keys could not be read: the database is away
-			// (docs/delivery-semantics.md).
-			g.logger.ErrorContext(ctx, "a key could not be resolved", "request", noteOf(ctx).id, "error", err.Error())
-			writeProblem(w, http.StatusServiceUnavailable, CodeUnavailable, "The API cannot reach its database.")
+			// The keys could not be read. It is not counted against the
+			// address: nothing says that its key is not valid.
+			fail(w, r, err)
 			return
 		}
 		noteOf(ctx).key = principal.KeyID

@@ -18,5 +18,13 @@ Changes to the contracts in this directory, newest first. A change that
   `Retry-After`) and `unavailable` (`503`).
 - The limits of a key and of an address without a valid key, in the
   description of the document.
+- The link, and its first three operations: `createLink`
+  (`POST /v1/links`), `getLink` (`GET /v1/links/{id}`) and `listLinks`
+  (`GET /v1/links`, paged with `limit` and an opaque `cursor`).
+- An entry of `errors` says where the rejected value was sent (`in`), which
+  one it is (`field`) and why (`code`, an enumeration with its first
+  nineteen values).
+- Three more values of `code` in an error: `unsupported_media_type`
+  (`415`), and `alias_taken` and `quota_exceeded` (`409`).
 - The skeleton of the management API: OpenAPI 3.1, the API key scheme and
   the shape of errors. No operations yet.

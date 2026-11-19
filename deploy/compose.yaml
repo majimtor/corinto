@@ -40,6 +40,9 @@ services:
       CORINTO_DATABASE_URL: *database-url
       CORINTO_API_ADDR: ":8080"
       CORINTO_HEALTH_ADDR: ":8081"
+      # Where the redirect of the local stack will answer. Links are stored
+      # with it.
+      CORINTO_REDIRECT_DOMAIN: "localhost:8082"
     ports:
       - "127.0.0.1:8080:8080"
       - "127.0.0.1:8081:8081"

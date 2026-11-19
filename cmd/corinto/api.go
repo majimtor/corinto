@@ -14,6 +14,7 @@ import (
 	"github.com/majimtor/corinto/internal/api"
 	"github.com/majimtor/corinto/internal/auth"
 	"github.com/majimtor/corinto/internal/health"
+	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/postgres"
 )
 
@@ -30,6 +31,7 @@ func runAPI(ctx context.Context, getenv func(string) string, logger *slog.Logger
 	databaseURL := env.require("CORINTO_DATABASE_URL")
 	apiAddr := env.require("CORINTO_API_ADDR")
 	healthAddr := env.require("CORINTO_HEALTH_ADDR")
+	redirectDomain := env.require("CORINTO_REDIRECT_DOMAIN")
 	if err := env.err(); err != nil {
 		return err
 	}
@@ -60,6 +62,7 @@ func runAPI(ctx context.Context, getenv func(string) string, logger *slog.Logger
 		Logger:         logger,
 		Keys:           auth.NewKeys(pool, rand.Reader),
 		TrustedProxies: proxies,
+		Links:          link.NewStore(pool, redirectDomain, rand.Reader),
 	})
 	if err != nil {
 		return err

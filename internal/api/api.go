@@ -7,8 +7,10 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/netip"
 	"path"
@@ -23,6 +25,7 @@ import (
 
 	"github.com/majimtor/corinto/contract"
 	"github.com/majimtor/corinto/internal/limits"
+	"github.com/majimtor/corinto/internal/link"
 )
 
 // unmatched is the pattern of the handler that answers what no operation
@@ -37,6 +40,8 @@ type Settings struct {
 	// TrustedProxies are the proxies whose forwarding header is believed
 	// when the address of a client is asked for. Empty trusts none.
 	TrustedProxies []netip.Prefix
+	// Links holds the links the operations read and write.
+	Links *link.Store
 }
 
 // New returns the handler of the API: the operations of the contract, each
@@ -51,7 +56,7 @@ func New(ctx context.Context, settings Settings) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read the contract: %w", err)
 	}
-	return newHandler(ctx, document, operations(written), settings, time.Now)
+	return newHandler(ctx, document, operations(written, settings.Links, time.Now), settings, time.Now)
 }
 
 // newHandler routes the operations of a document to what serves them. The
@@ -64,7 +69,7 @@ func newHandler(
 	settings Settings, now func() time.Time,
 ) (http.Handler, error) {
 	logger := settings.Logger
-	keys, err := newGate(ctx, settings.Keys, settings.TrustedProxies, logger, now)
+	keys, err := newGate(ctx, settings.Keys, settings.TrustedProxies, now)
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +145,13 @@ func validate(route *routers.Route, next http.Handler) http.Handler {
 		// An operation that takes no body refuses one: a client that sends
 		// it expects something this operation will not do.
 		RejectWhenRequestBodyNotSpecified: true,
+		// Everything that is wrong with a request is told at once.
+		MultiError: true,
+	}
+	// The media types the operation takes a body in, when it takes one.
+	var accepted openapi3.Content
+	if body := route.Operation.RequestBody; body != nil && body.Value != nil {
+		accepted = body.Value.Content
 	}
 	var names []string
 	for _, parameters := range []openapi3.Parameters{route.PathItem.Parameters, route.Operation.Parameters} {
@@ -157,12 +169,27 @@ func validate(route *routers.Route, next http.Handler) http.Handler {
 		for _, name := range names {
 			values[name] = r.PathValue(name)
 		}
+		if accepted != nil && r.ContentLength != 0 {
+			mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			if err != nil || accepted[mediaType] == nil {
+				writeProblem(w, http.StatusUnsupportedMediaType, CodeUnsupportedMedia,
+					"The operation does not take a body of this media type.")
+				return
+			}
+		}
 		err := openapi3filter.ValidateRequest(r.Context(), &openapi3filter.RequestValidationInput{
 			Request: r, PathParams: values, Route: route, Options: options,
 		})
-		if err != nil {
-			writeProblem(w, http.StatusBadRequest, CodeInvalidRequest,
-				"The request does not match the contract of the operation.")
+		var tooLarge *http.MaxBytesError
+		switch {
+		case errors.As(err, &tooLarge):
+			// A body that declared no length, or less than it sent, is cut
+			// off while it is read.
+			writeProblem(w, http.StatusRequestEntityTooLarge, CodePayloadTooLarge,
+				"The body of a request has at most 16 kB.")
+			return
+		case err != nil:
+			writeRejected(w, rejections(err)...)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -255,6 +282,9 @@ type note struct {
 	// key is the identifier of the key the request was made with, once the
 	// key is known to be valid. Never the key itself.
 	key string
+	// failure is why the server could not do what was asked, when the
+	// reason is its own and not the request's.
+	failure error
 }
 
 type noteKey struct{}
@@ -296,6 +326,11 @@ func observe(next http.Handler, logger *slog.Logger) http.Handler {
 				if response.status == 0 {
 					writeProblem(response, http.StatusInternalServerError, CodeInternalError, "")
 				}
+			}
+			// What an operation could not do for a reason of the server
+			// goes to the log, never to the client.
+			if left.failure != nil {
+				logger.ErrorContext(ctx, "an operation failed", "request", id, "error", left.failure.Error())
 			}
 			// The pattern of the route, never the path: a path carries
 			// identifiers, and a query string is not logged at all.

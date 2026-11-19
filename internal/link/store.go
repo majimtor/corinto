@@ -5,7 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -20,6 +24,15 @@ const (
 
 	// MaxPage is the largest page List returns: no collection is unbounded.
 	MaxPage = 100
+
+	// MaxTitleLength bounds a title, in characters. What describes a link
+	// is bounded, so that a listing of links has a size that can be known:
+	// a title is a line, not a document.
+	MaxTitleLength = 200
+	// MaxTags bounds the tags of a link: a handful.
+	MaxTags = 20
+	// MaxTagLength bounds a tag, in characters: a short word.
+	MaxTagLength = 40
 )
 
 // State is the state of a link. Expiry is not one: it is derived from the
@@ -46,6 +59,8 @@ var (
 	ErrQuotaExceeded     = errors.New("the workspace has reached its quota of links")
 	ErrNoFreeIdentifier  = errors.New("no free identifier was generated in five attempts")
 	ErrPage              = errors.New("a page has between 1 and 100 links and starts after a link identifier")
+	ErrTitle             = errors.New("a title has at most 200 printable characters")
+	ErrTags              = errors.New("a link has at most 20 tags of 1 to 40 printable characters each, none repeated")
 )
 
 // Link is a link as it is stored.
@@ -71,8 +86,8 @@ type Link struct {
 }
 
 // Draft is what a workspace gives to create a link. An empty Alias asks for
-// a generated identifier. Title, Tags and ExpiresAt are stored as given: the
-// operations that take them from outside state their limits.
+// a generated identifier. ExpiresAt is stored as given: whether a link may
+// be created already expired is for whoever creates it to say.
 type Draft struct {
 	Alias       string
 	Destination string
@@ -139,6 +154,9 @@ func (s *Store) Create(ctx context.Context, workspaceID string, draft Draft) (Li
 	}
 	resolved, err := Resolve(destination, draft.Campaign)
 	if err != nil {
+		return Link{}, err
+	}
+	if err := checkDescription(draft.Title, draft.Tags); err != nil {
 		return Link{}, err
 	}
 
@@ -219,37 +237,66 @@ func (s *Store) Get(ctx context.Context, workspaceID, id string) (Link, error) {
 
 // List returns up to limit links of a workspace in the order in which they
 // were created, starting after the link whose identifier is after; an empty
-// after starts at the beginning. The order is that of the identifiers, which
-// the database generates in time order. Creations in one workspace wait for
-// each other, so its identifiers are also in the order of the commits, and
-// a page neither repeats nor skips a link created between two calls.
-func (s *Store) List(ctx context.Context, workspaceID, after string, limit int) ([]Link, error) {
+// after starts at the beginning. It also says whether there are more after
+// them, so that whoever pages knows the last page when it has it. The order
+// is that of the identifiers, which the database generates in time order.
+// Creations in one workspace wait for each other, so its identifiers are
+// also in the order of the commits, and a page neither repeats nor skips a
+// link created between two calls.
+func (s *Store) List(ctx context.Context, workspaceID, after string, limit int) ([]Link, bool, error) {
 	workspace, ok := parseID(workspaceID)
 	if !ok {
-		return nil, ErrWorkspaceNotFound
+		return nil, false, ErrWorkspaceNotFound
 	}
 	if limit < 1 || limit > MaxPage {
-		return nil, ErrPage
+		return nil, false, ErrPage
 	}
 	// The zero identifier sorts before every generated one.
 	start := pgtype.UUID{Valid: true}
 	if after != "" {
 		if start, ok = parseID(after); !ok {
-			return nil, ErrPage
+			return nil, false, ErrPage
 		}
 	}
+	// One more than asked for: whether it is there is the answer to whether
+	// there are more.
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+columns+` FROM links
 		  WHERE workspace_id = $1 AND state <> 'deleted' AND id > $2
-		  ORDER BY id LIMIT $3`, workspace, start, limit)
+		  ORDER BY id LIMIT $3`, workspace, start, limit+1)
 	if err != nil {
-		return nil, fmt.Errorf("list the links: %w", err)
+		return nil, false, fmt.Errorf("list the links: %w", err)
 	}
 	links, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Link, error) { return scan(row) })
 	if err != nil {
-		return nil, fmt.Errorf("list the links: %w", err)
+		return nil, false, fmt.Errorf("list the links: %w", err)
 	}
-	return links, nil
+	if len(links) > limit {
+		return links[:limit], true, nil
+	}
+	return links, false, nil
+}
+
+// checkDescription checks what describes a link: its title and its tags.
+func checkDescription(title string, tags []string) error {
+	if !printable(title) || utf8.RuneCountInString(title) > MaxTitleLength {
+		return ErrTitle
+	}
+	if len(tags) > MaxTags {
+		return ErrTags
+	}
+	for i, tag := range tags {
+		if tag == "" || !printable(tag) || utf8.RuneCountInString(tag) > MaxTagLength || slices.Contains(tags[:i], tag) {
+			return ErrTags
+		}
+	}
+	return nil
+}
+
+// printable reports whether a text is valid and has no character that
+// cannot be seen, a line break among them.
+func printable(text string) bool {
+	return utf8.ValidString(text) && !strings.ContainsFunc(text, func(r rune) bool { return !unicode.IsPrint(r) })
 }
 
 // parseID reads an identifier of the database. One that is not well formed

@@ -5,15 +5,20 @@ import (
 	"time"
 
 	"github.com/majimtor/corinto/internal/auth"
+	"github.com/majimtor/corinto/internal/link"
 )
 
 // operations returns what serves each operation of the contract, by the
 // identifier the contract gives it.
-func operations(document []byte) map[string]http.Handler {
+func operations(document []byte, store *link.Store, now func() time.Time) map[string]http.Handler {
+	links := links{store: store, now: now}
 	return map[string]http.Handler{
 		"getHealth":   http.HandlerFunc(getHealth),
 		"getContract": getContract(document),
 		"getKey":      http.HandlerFunc(getKey),
+		"createLink":  http.HandlerFunc(links.create),
+		"getLink":     http.HandlerFunc(links.get),
+		"listLinks":   http.HandlerFunc(links.list),
 	}
 }
 
