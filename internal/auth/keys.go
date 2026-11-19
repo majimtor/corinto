@@ -161,14 +161,15 @@ func (k *Keys) Authenticate(ctx context.Context, presented string) (Principal, e
 		workspace     pgtype.UUID
 		stored        = make([]byte, sha256.Size)
 		scopes        []string
+		expiry        *time.Time
 		usable, stale bool
 	)
 	err := k.pool.QueryRow(ctx,
-		`SELECT workspace_id, secret_hash, scopes,
+		`SELECT workspace_id, secret_hash, scopes, expires_at,
 		        revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()),
 		        last_used_on IS DISTINCT FROM (now() AT TIME ZONE 'UTC')::date
 		   FROM api_keys WHERE id = $1`, id,
-	).Scan(&workspace, &stored, &scopes, &usable, &stale)
+	).Scan(&workspace, &stored, &scopes, &expiry, &usable, &stale)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return Principal{}, fmt.Errorf("read the key: %w", err)
 	}
@@ -189,7 +190,10 @@ func (k *Keys) Authenticate(ctx context.Context, presented string) (Principal, e
 		}
 	}
 
-	principal := Principal{WorkspaceID: workspace.String(), KeyID: id.String(), Scopes: make([]Scope, len(scopes))}
+	principal := Principal{
+		WorkspaceID: workspace.String(), KeyID: id.String(),
+		Scopes: make([]Scope, len(scopes)), ExpiresAt: expiry,
+	}
 	for i, scope := range scopes {
 		principal.Scopes[i] = Scope(scope)
 	}

@@ -80,7 +80,7 @@ func refused(t *testing.T, keys *auth.Keys, credential string) {
 	if !errors.Is(err, auth.ErrInvalidKey) || err.Error() != auth.ErrInvalidKey.Error() {
 		t.Errorf("err = %v, want exactly %v", err, auth.ErrInvalidKey)
 	}
-	if principal.WorkspaceID != "" || principal.KeyID != "" || principal.Scopes != nil {
+	if principal.WorkspaceID != "" || principal.KeyID != "" || principal.Scopes != nil || principal.ExpiresAt != nil {
 		t.Errorf("a refusal returned the principal %+v", principal)
 	}
 }
@@ -112,6 +112,9 @@ func TestAnIssuedKeyResolvesToItsWorkspaceAndItsScopes(t *testing.T) {
 	}
 	if !principal.Allows(auth.ScopeLinksRead) || principal.Allows(auth.ScopeLinksWrite) {
 		t.Error("the principal does not allow exactly what the key was issued with")
+	}
+	if principal.ExpiresAt != nil {
+		t.Errorf("the principal of a key without an expiry says it expires at %v", principal.ExpiresAt)
 	}
 }
 
@@ -197,8 +200,12 @@ func TestAKeyWithAnExpiryWorksUntilThen(t *testing.T) {
 	if key.ExpiresAt == nil || !key.ExpiresAt.Equal(expiry) {
 		t.Errorf("the key expires at %v, want %v", key.ExpiresAt, expiry)
 	}
-	if _, err := keys.Authenticate(t.Context(), credential); err != nil {
-		t.Errorf("before its expiry the key gives %v", err)
+	principal, err := keys.Authenticate(t.Context(), credential)
+	if err != nil {
+		t.Fatalf("before its expiry the key gives %v", err)
+	}
+	if principal.ExpiresAt == nil || !principal.ExpiresAt.Equal(expiry) {
+		t.Errorf("the principal says the key expires at %v, want %v", principal.ExpiresAt, expiry)
 	}
 }
 

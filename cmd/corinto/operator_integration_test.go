@@ -4,16 +4,20 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/majimtor/corinto/contract/contracttest"
 	"github.com/majimtor/corinto/internal/auth"
 	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/postgres/postgrestest"
@@ -345,5 +349,81 @@ func TestTheOperatorBlocksAWorkspaceWithItsLinksAndItsKeys(t *testing.T) {
 	code, stdout, log = operate(t, env, "block-workspace", "--workspace", "00000000-0000-7000-8000-000000000000")
 	if code != exitFailure || stdout != "" || !strings.Contains(log, "no such workspace") {
 		t.Errorf("a workspace that does not exist: exit code = %d and %q printed; log: %s", code, stdout, log)
+	}
+}
+
+// The key the operator prints opens the API: the whole way, from the
+// command to the database and back through the process that serves.
+func TestAKeyIssuedByTheOperatorOpensTheAPI(t *testing.T) {
+	env, _ := migrated(t)
+	workspaceID, _ := printed(t, env, "create-workspace", "--name", "Acme")["id"].(string)
+	issued := printed(t, env, "issue-key", "--workspace", workspaceID, "--name", "Deploy pipeline",
+		"--scope", "links:read", "--scope", "metrics:read")
+	keyID, _ := issued["id"].(string)
+	credential, _ := issued["key"].(string)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	stderr := &lockedBuffer{}
+	exited := make(chan int, 1)
+	go func() { exited <- run(ctx, []string{"api"}, env, io.Discard, stderr) }()
+	url := "http://" + announced(t, stderr, "api listening") + "/v1/key"
+
+	// The client checks each answer against the contract.
+	client := contracttest.Client(t)
+	ask := func(authorization string) (int, string) {
+		t.Helper()
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if authorization != "" {
+			request.Header.Set("Authorization", authorization)
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = response.Body.Close() }()
+		body, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response.StatusCode, string(body)
+	}
+
+	status, body := ask("Bearer " + credential)
+	want := map[string]any{
+		"id": keyID, "workspace_id": workspaceID, "scopes": []string{"links:read", "metrics:read"}, "expires_at": nil,
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(body), &got); err != nil || status != http.StatusOK || !equalJSON(got, want) {
+		t.Errorf("GET /v1/key with the key = %d %s, want 200 %v", status, body, want)
+	}
+	if status, _ := ask(""); status != http.StatusUnauthorized {
+		t.Errorf("GET /v1/key without a key = %d, want 401", status)
+	}
+
+	// Revoking takes effect on the next request: the API reads the key
+	// each time.
+	printed(t, env, "revoke-key", "--key", keyID)
+	if status, _ := ask("Bearer " + credential); status != http.StatusUnauthorized {
+		t.Errorf("GET /v1/key with the revoked key = %d, want 401", status)
+	}
+
+	// The log of the process names the key and never carries it.
+	_, secret, _ := strings.Cut(strings.TrimPrefix(credential, "cor_"), "_")
+	if log := stderr.String(); !strings.Contains(log, keyID) || strings.Contains(log, secret) {
+		t.Error("the log of the api process does not name the key, or carries its secret")
+	}
+
+	cancel()
+	select {
+	case code := <-exited:
+		if code != exitOK {
+			t.Errorf("exit code = %d after a clean stop; log: %s", code, stderr.String())
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the process did not stop")
 	}
 }

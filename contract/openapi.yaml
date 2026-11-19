@@ -23,6 +23,16 @@ info:
 
     Every response carries `X-Request-Id`, which names the request in the
     logs of the server.
+
+    An operation that needs a key says so, with the scope the key must
+    hold. The key travels in the `Authorization` header and nowhere else. A
+    request without a valid key is answered `401`, the same whatever is
+    wrong with the key; one whose key lacks the scope, `403`.
+
+    A key makes at most 120 requests a minute, of which at most 60 change
+    something. After 10 requests in a minute without a valid key, the
+    address they come from is refused for the rest of that minute, with a
+    valid key too. In both cases the answer is `429` with `Retry-After`.
   version: 0.0.0
   license:
     name: MIT
@@ -53,6 +63,35 @@ paths:
           $ref: "#/components/responses/Problem"
         "500":
           $ref: "#/components/responses/Problem"
+  /v1/key:
+    get:
+      operationId: getKey
+      summary: The key of the request.
+      description: >-
+        Says which key the request was made with, the workspace it acts in
+        and what it may do there. Any valid key may ask.
+      security:
+        - apiKey: []
+      responses:
+        "200":
+          description: The key.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Key"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
   /v1/openapi.yaml:
     get:
       operationId: getContract
@@ -82,7 +121,8 @@ components:
       scheme: bearer
       description: >-
         An API key of a workspace, in the `Authorization` header. Each
-        operation names the scope it requires.
+        operation names the scope it requires, or none when any valid key
+        will do.
   headers:
     RequestId:
       description: >-
@@ -101,6 +141,39 @@ components:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
+    Unauthenticated:
+      description: >-
+        The request has no valid key. The answer is the same for a missing
+        key, a malformed one, one that does not exist, a wrong secret, a
+        revoked key and an expired one.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        WWW-Authenticate:
+          description: The scheme the API accepts.
+          required: true
+          schema:
+            type: string
+            const: Bearer
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    RateLimited:
+      description: Too many requests in a minute, from the key or from the address.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Retry-After:
+          description: Seconds to wait before the next request.
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
   schemas:
     Health:
       type: object
@@ -109,6 +182,31 @@ components:
         status:
           type: string
           enum: [ok]
+    Key:
+      type: object
+      required: [id, workspace_id, scopes, expires_at]
+      properties:
+        id:
+          type: string
+        workspace_id:
+          type: string
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Scope"
+        expires_at:
+          description: When the key stops being valid, or null when it has no expiry.
+          type: [string, "null"]
+          format: date-time
+    Scope:
+      description: One thing a key may do in its workspace.
+      type: string
+      enum:
+        - links:read
+        - links:write
+        - metrics:read
+        - webhooks:read
+        - webhooks:write
     Problem:
       type: object
       required: [type, title, status, code]
@@ -136,6 +234,10 @@ components:
             - method_not_allowed
             - payload_too_large
             - internal_error
+            - unauthenticated
+            - forbidden
+            - rate_limited
+            - unavailable
         errors:
           type: array
           description: One entry per field of the request that was rejected.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/majimtor/corinto/internal/api"
+	"github.com/majimtor/corinto/internal/auth"
 	"github.com/majimtor/corinto/internal/health"
 	"github.com/majimtor/corinto/internal/postgres"
 )
@@ -31,6 +33,11 @@ func runAPI(ctx context.Context, getenv func(string) string, logger *slog.Logger
 	if err := env.err(); err != nil {
 		return err
 	}
+	// Optional: without it no forwarding header is believed.
+	proxies, err := api.ParseProxies(getenv("CORINTO_TRUSTED_PROXIES"))
+	if err != nil {
+		return fmt.Errorf("CORINTO_TRUSTED_PROXIES: %w", err)
+	}
 
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
@@ -49,7 +56,11 @@ func runAPI(ctx context.Context, getenv func(string) string, logger *slog.Logger
 
 	// Built before anything listens: a server that does not serve exactly
 	// its contract does not start.
-	handler, err := api.New(ctx, logger)
+	handler, err := api.New(ctx, api.Settings{
+		Logger:         logger,
+		Keys:           auth.NewKeys(pool, rand.Reader),
+		TrustedProxies: proxies,
+	})
 	if err != nil {
 		return err
 	}

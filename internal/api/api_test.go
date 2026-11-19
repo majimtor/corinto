@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 
@@ -58,7 +59,7 @@ func (l *log) lines(t *testing.T, message string) []map[string]any {
 func serve(t *testing.T) (string, *log, func()) {
 	t.Helper()
 	written := &log{}
-	handler, err := New(t.Context(), slog.New(slog.NewJSONHandler(written, nil)))
+	handler, err := New(t.Context(), Settings{Logger: slog.New(slog.NewJSONHandler(written, nil)), Keys: &keyring{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +224,8 @@ func failing(t *testing.T, written io.Writer, id string, replacement http.Handle
 	}
 	serving := operations(nil)
 	serving[id] = replacement
-	handler, err := newHandler(document, serving, slog.New(slog.NewJSONHandler(written, nil)))
+	settings := Settings{Logger: slog.New(slog.NewJSONHandler(written, nil)), Keys: &keyring{}}
+	handler, err := newHandler(t.Context(), document, serving, settings, time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +331,7 @@ func TestARequestLeavesOneLineWithoutWhatTheClientWrote(t *testing.T) {
 // The contract and the server must name the same operations, or the server
 // does not start.
 func TestTheServerDoesNotStartUnlessItServesExactlyTheContract(t *testing.T) {
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	settings := Settings{Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Keys: &keyring{}}
 	load := func(t *testing.T) *openapi3.T {
 		t.Helper()
 		document, err := contract.Load(t.Context())
@@ -366,9 +368,36 @@ func TestTheServerDoesNotStartUnlessItServesExactlyTheContract(t *testing.T) {
 				document.Paths.Find("/v1/openapi.yaml").Get.OperationID = "getHealth"
 			},
 			[]string{`two operations are called "getHealth"`}},
+		{"an operation that does not say whether it needs a key",
+			func(document *openapi3.T, _ map[string]http.Handler) {
+				document.Paths.Find("/v1/key").Get.Security = nil
+			},
+			[]string{`the operation "getKey" does not say whether it needs a key`}},
+		{"a scope that does not exist",
+			func(document *openapi3.T, _ map[string]http.Handler) {
+				document.Paths.Find("/v1/key").Get.Security = &openapi3.SecurityRequirements{{"apiKey": {"links:delete"}}}
+			},
+			[]string{`the operation "getKey" asks for the scope "links:delete", which does not exist`}},
+		{"two scopes for one operation",
+			func(document *openapi3.T, _ map[string]http.Handler) {
+				document.Paths.Find("/v1/key").Get.Security = &openapi3.SecurityRequirements{{"apiKey": {"links:read", "links:write"}}}
+			},
+			[]string{`the operation "getKey" asks for something other than the scheme "apiKey" with at most one scope`}},
+		{"another scheme",
+			func(document *openapi3.T, _ map[string]http.Handler) {
+				document.Paths.Find("/v1/key").Get.Security = &openapi3.SecurityRequirements{{"session": {}}}
+			},
+			[]string{`the operation "getKey" asks for something other than the scheme "apiKey"`}},
+		{"a key or nothing",
+			func(document *openapi3.T, _ map[string]http.Handler) {
+				document.Paths.Find("/v1/key").Get.Security = &openapi3.SecurityRequirements{{"apiKey": {}}, {}}
+			},
+			[]string{`the operation "getKey" asks for something other than the scheme "apiKey"`}},
 		{"a path that cannot be routed",
 			func(document *openapi3.T, serving map[string]http.Handler) {
-				document.Paths.Set("/v1/{a}{b}", &openapi3.PathItem{Get: &openapi3.Operation{OperationID: "getBoth"}})
+				document.Paths.Set("/v1/{a}{b}", &openapi3.PathItem{Get: &openapi3.Operation{
+					OperationID: "getBoth", Security: &openapi3.SecurityRequirements{},
+				}})
 				serving["getBoth"] = nothing
 			},
 			[]string{`"GET /v1/{a}{b}" cannot be routed`}},
@@ -377,7 +406,7 @@ func TestTheServerDoesNotStartUnlessItServesExactlyTheContract(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			document, serving := load(t), operations(nil)
 			c.change(document, serving)
-			handler, err := newHandler(document, serving, logger)
+			handler, err := newHandler(t.Context(), document, serving, settings, time.Now)
 			if err == nil || handler != nil {
 				t.Fatalf("the server was built: err = %v", err)
 			}
@@ -389,7 +418,7 @@ func TestTheServerDoesNotStartUnlessItServesExactlyTheContract(t *testing.T) {
 		})
 	}
 
-	if _, err := newHandler(load(t), operations(nil), logger); err != nil {
+	if _, err := newHandler(t.Context(), load(t), operations(nil), settings, time.Now); err != nil {
 		t.Errorf("with the contract and the operations as they are: err = %v", err)
 	}
 }

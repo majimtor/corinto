@@ -17,11 +17,18 @@ const (
 	CodeMethodNotAllowed Code = "method_not_allowed"
 	CodePayloadTooLarge  Code = "payload_too_large"
 	CodeInternalError    Code = "internal_error"
+	CodeUnauthenticated  Code = "unauthenticated"
+	CodeForbidden        Code = "forbidden"
+	CodeRateLimited      Code = "rate_limited"
+	CodeUnavailable      Code = "unavailable"
 )
 
 // codes returns every code, in the order of the contract.
 func codes() []Code {
-	return []Code{CodeInvalidRequest, CodeNotFound, CodeMethodNotAllowed, CodePayloadTooLarge, CodeInternalError}
+	return []Code{
+		CodeInvalidRequest, CodeNotFound, CodeMethodNotAllowed, CodePayloadTooLarge, CodeInternalError,
+		CodeUnauthenticated, CodeForbidden, CodeRateLimited, CodeUnavailable,
+	}
 }
 
 // problem is the one shape of an error: Problem Details (RFC 9457) with the
