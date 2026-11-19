@@ -32,9 +32,12 @@ The redirect always answers; when something fails, analytics give way.
 2. **The first hop is at most once.** Events wait in a bounded buffer of
    50,000 and are inserted into the inbox in batches, every second or every
    500 events, whichever comes first. A batch that the database does not
-   accept stays in the buffer and is tried again at the next flush. The
-   insert ignores conflicts on the event identifier, so a batch written
-   twice leaves one row per event.
+   accept stays in the buffer and is tried again at the next flush. A
+   batch that the database refuses for what it holds, not because it is
+   away, is inserted event by event, and an event refused on its own is
+   dropped: it is lost, and counted as such. The insert ignores conflicts
+   on the event identifier, so a batch written twice leaves one row per
+   event.
    Tests: `TestTheBufferFlushesByCountAndByInterval` in `internal/ingest`;
    `TestABatchInsertedTwiceLeavesOneRowPerEvent` in `internal/ingest`,
    against PostgreSQL.
@@ -112,6 +115,7 @@ PostgreSQL, which drops events on purpose and reads both equalities.
 | The database is down | Redirects continue from the replica. Events wait in the buffer; once it is full, new ones are dropped and counted when the database returns. The API answers `503` | Age of the replica; lost count | `TestTheDatabaseAbsent` in `cmd/corinto` |
 | `worker` is stopped | Accepted events stay pending. Nothing is lost | Pending count; the instant of statement 7 stops advancing | `TestAConsumerStoppedMidBatch` in `cmd/corinto` |
 | The buffer is full | The new event is dropped and counted | Lost count | Statement 3 |
+| The inbox refuses an event | It is dropped; the rest of its batch is accepted | Lost count; an error in the log | `TestOneRefusedEventDoesNotHoldItsBatch` in `internal/ingest` |
 | `redirect` crashes | The events in its memory are lost and not counted, together with the served count not yet written | Nowhere: see the declared limits | None |
 | A batch is retried, or an event arrives twice | The second copy is ignored by its identifier | Nothing to show | `TestADuplicatedEvent` in `cmd/corinto` |
 | An event cannot be processed | It is retried, then dead-lettered with its reason | Dead-letter count | Statement 5 |

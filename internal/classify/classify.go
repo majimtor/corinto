@@ -182,12 +182,12 @@ func load(files fs.FS) (*Classifier, error) {
 		cached: make(map[string]agent),
 	}
 	for _, browser := range rules.Browsers {
-		if !slices.Contains(browsers(), Browser(browser.Value)) {
+		if !slices.Contains(Browsers(), Browser(browser.Value)) {
 			return nil, fmt.Errorf("rules.json names the browser %q, which is not one of the families", browser.Value)
 		}
 	}
 	for _, device := range rules.Devices {
-		if !slices.Contains(devices(), Device(device.Value)) {
+		if !slices.Contains(Devices(), Device(device.Value)) {
 			return nil, fmt.Errorf("rules.json names the device %q, which is not one of the devices", device.Value)
 		}
 	}
@@ -223,12 +223,19 @@ func read(files fs.FS, name string, into any) error {
 	return nil
 }
 
-// browsers and devices return the two closed enumerations.
-func browsers() []Browser {
+// Classes returns the classes, in the order in which their rules are
+// tried.
+func Classes() []Class {
+	return []Class{ClassPrefetch, ClassAutomation, ClassPreview, ClassCrawler, ClassPresumedHuman}
+}
+
+// Browsers returns the closed enumeration of the browser families.
+func Browsers() []Browser {
 	return []Browser{BrowserChrome, BrowserSafari, BrowserFirefox, BrowserEdge, BrowserOpera, BrowserSamsungInternet, BrowserOther}
 }
 
-func devices() []Device {
+// Devices returns the closed enumeration of the devices.
+func Devices() []Device {
 	return []Device{DeviceDesktop, DeviceMobile, DeviceTablet, DeviceOther}
 }
 

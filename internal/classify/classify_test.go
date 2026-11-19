@@ -61,8 +61,11 @@ func wellFormed(t testing.TB, rules *Classifier, got Classification) {
 }
 
 func TestTheEnumerationsAreTheOnesStoredEventsCarry(t *testing.T) {
-	if !slices.Equal(devices(), closed.devices) || !slices.Equal(browsers(), closed.browsers) {
-		t.Errorf("devices %v and browsers %v, want %v and %v", devices(), browsers(), closed.devices, closed.browsers)
+	if !slices.Equal(Classes(), classes) {
+		t.Errorf("classes %v, want %v", Classes(), classes)
+	}
+	if !slices.Equal(Devices(), closed.devices) || !slices.Equal(Browsers(), closed.browsers) {
+		t.Errorf("devices %v and browsers %v, want %v and %v", Devices(), Browsers(), closed.devices, closed.browsers)
 	}
 }
 
