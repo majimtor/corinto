@@ -17,14 +17,17 @@ import (
 // docs/delivery-semantics.md is the only source of the parameters. Whoever
 // changes one changes it there, and here.
 func TestTheParametersOfAConsumerAreTheOnesTheDocumentStates(t *testing.T) {
-	if BatchSize != 500 || PollEvery != time.Second {
-		t.Errorf("a consumer takes %d events at once and asks every %s", BatchSize, PollEvery)
+	if BatchSize != 500 || PollEvery != time.Second || idleTimeout != 30*time.Second {
+		t.Errorf("a consumer takes %d events at once, asks every %s and may be idle in a transaction for %s", BatchSize, PollEvery, idleTimeout)
 	}
 	document, err := os.ReadFile("../../docs/delivery-semantics.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, row := range []string{"| Consumer batch | 500 events |", "| Consumer poll | Every second, and at once after a whole batch |"} {
+	for _, row := range []string{
+		"| Consumer batch | 500 events |", "| Consumer poll | Every second, and at once after a whole batch |",
+		"| Idle transaction of a consumer | Ended after 30 seconds |",
+	} {
 		if !strings.Contains(string(document), row) {
 			t.Errorf("docs/delivery-semantics.md does not have the row %q", row)
 		}

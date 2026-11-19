@@ -263,9 +263,14 @@ func TestTheParametersAreTheOnesTheDocumentStates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	waits := [MaxAttempts - 1]time.Duration{time.Second, 5 * time.Second, 30 * time.Second, 2 * time.Minute}
+	if MaxAttempts != 5 || retryWaits != waits {
+		t.Errorf("%d attempts, with waits of %v", MaxAttempts, retryWaits)
+	}
 	for _, row := range []string{
 		"| Buffer | 50,000 events |", "| Flush | Every second, or every 500 events |",
 		"| Last flush when the process stops | At most 3 seconds |",
+		"| Attempts per event | 5 |", "| Waits between attempts | 1 s, 5 s, 30 s, 2 min |",
 	} {
 		if !strings.Contains(string(document), row) {
 			t.Errorf("docs/delivery-semantics.md does not have the row %q", row)

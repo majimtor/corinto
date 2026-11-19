@@ -668,23 +668,195 @@ func TestTheReconciliationAddsUp(t *testing.T) {
 	if err := tx.Commit(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	var processedInAll int64
+	// And three of the ones that wait fail on every attempt.
+	failing, err := s.pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = failing.Rollback(context.WithoutCancel(t.Context())) }()
+	bad, err := Take(t.Context(), failing, 3)
+	if err != nil || len(bad) != 3 {
+		t.Fatalf("Take returned %d events with the error %v", len(bad), err)
+	}
+	for i, event := range bad {
+		// The database names a constraint in some of its refusals and in
+		// others it does not.
+		refusal := postgres.Refusal{Code: "23514", Constraint: "a_constraint"}
+		if i == 0 {
+			refusal = postgres.Refusal{Code: "22P02"}
+		}
+		for attempt := range MaxAttempts {
+			dead, err := Fail(t.Context(), failing, event, refusal)
+			if err != nil || dead != (attempt == MaxAttempts-1) {
+				t.Fatalf("the failure %d of an event ended with %v and dead-lettered = %t", attempt+1, err, dead)
+			}
+		}
+	}
+	if err := failing.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if reasons := s.number(t, `SELECT count(*) FROM event_dead_letters
+	                            WHERE (reason_sqlstate, reason_constraint) IS NOT DISTINCT FROM ('23514', 'a_constraint')
+	                               OR (reason_sqlstate, reason_constraint) IS NOT DISTINCT FROM ('22P02', NULL)`); reasons != 3 {
+		t.Errorf("%d of the 3 dead letters have the reason they were given", reasons)
+	}
+
+	var processedInAll, deadInAll int64
 	for _, of := range []struct{ day, workspace string }{
 		{"2026-11-19", s.acme}, {"2026-11-20", s.acme}, {"2026-11-20", s.globex}, {"2026-11-19", s.globex},
 	} {
 		accepted := s.counter(t, of.day, of.workspace, "accepted")
 		processed := s.counter(t, of.day, of.workspace, counterProcessed)
+		dead := s.counter(t, of.day, of.workspace, counterDeadLettered)
 		pending := s.number(t,
 			`SELECT count(*) FROM event_inbox
 			  WHERE workspace_id = $1::uuid AND (occurred_at AT TIME ZONE 'UTC')::date = $2::date AND processed_at IS NULL`,
 			of.workspace, of.day)
-		if accepted != processed+pending {
-			t.Errorf("on %s the workspace %s has %d accepted, %d processed and %d pending", of.day, of.workspace, accepted, processed, pending)
+		if accepted != processed+pending+dead {
+			t.Errorf("on %s the workspace %s has %d accepted, %d processed, %d pending and %d dead-lettered", of.day, of.workspace, accepted, processed, pending, dead)
 		}
-		processedInAll += processed
+		// What is counted as dead-lettered is what is among the dead
+		// letters.
+		letters := s.number(t,
+			`SELECT count(*) FROM event_dead_letters WHERE workspace_id = $1::uuid AND (occurred_at AT TIME ZONE 'UTC')::date = $2::date`,
+			of.workspace, of.day)
+		if letters != dead {
+			t.Errorf("on %s the workspace %s has %d dead letters and %d counted as such", of.day, of.workspace, letters, dead)
+		}
+		processedInAll, deadInAll = processedInAll+processed, deadInAll+dead
 	}
-	if processedInAll != 20_000 {
-		t.Errorf("%d events are counted as processed, want 20,000", processedInAll)
+	if processedInAll != 20_000 || deadInAll != 3 {
+		t.Errorf("%d events are counted as processed and %d as dead-lettered, want 20,000 and 3", processedInAll, deadInAll)
+	}
+}
+
+// Statement 5: after each failed attempt an event waits longer, and is not
+// taken while it waits. An event that is no longer pending has no attempts
+// to count.
+func TestAnEventThatFailedWaitsForItsNextAttempt(t *testing.T) {
+	s := newStage(t)
+	events := s.events(noon, 2)
+	if settled, err := s.store.Accept(t.Context(), events); err != nil || settled != 2 {
+		t.Fatalf("Accept settled %d events with the error %v", settled, err)
+	}
+	failed, fine := byID(events)[0], byID(events)[1]
+	within := func(run func(tx pgx.Tx)) {
+		t.Helper()
+		tx, err := s.pool.Begin(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(context.WithoutCancel(t.Context())) }()
+		run(tx)
+		if err := tx.Commit(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refusal := postgres.Refusal{Code: "23514", Constraint: "a_constraint"}
+
+	for attempt, wait := range retryWaits {
+		within(func(tx pgx.Tx) {
+			if dead, err := Fail(t.Context(), tx, failed, refusal); err != nil || dead {
+				t.Fatalf("the failure %d ended with %v and dead-lettered = %t", attempt+1, err, dead)
+			}
+		})
+		var (
+			attempts int
+			seconds  float64
+		)
+		if err := s.pool.QueryRow(t.Context(),
+			`SELECT attempts, extract(epoch FROM next_attempt_at - now())::float8 FROM event_inbox WHERE id = $1::uuid`, failed.ID).
+			Scan(&attempts, &seconds); err != nil {
+			t.Fatal(err)
+		}
+		if attempts != attempt+1 || seconds > wait.Seconds() || seconds < wait.Seconds()-2 {
+			t.Fatalf("after %d failures the event has %d attempts and %.1f seconds to wait, want %s", attempt+1, attempts, seconds, wait)
+		}
+		// While it waits it is taken by nobody, in a batch or on its own;
+		// the other event is.
+		within(func(tx pgx.Tx) {
+			taken, err := Take(t.Context(), tx, 10)
+			if err != nil || len(taken) != 1 || taken[0].ID != fine.ID {
+				t.Fatalf("Take returned %d events with the error %v, want the one that does not wait", len(taken), err)
+			}
+			if alone, err := TakeOne(t.Context(), tx, failed.ID); err != nil || alone {
+				t.Fatalf("an event that waits was taken on its own (%v)", err)
+			}
+			if alone, err := TakeOne(t.Context(), tx, fine.ID); err != nil || !alone {
+				t.Fatalf("an event that does not wait was not taken on its own (%v)", err)
+			}
+		})
+	}
+	// When its time comes it is taken again, the oldest first.
+	if _, err := s.pool.Exec(t.Context(), `UPDATE event_inbox SET next_attempt_at = now() WHERE id = $1::uuid`, failed.ID); err != nil {
+		t.Fatal(err)
+	}
+	within(func(tx pgx.Tx) {
+		taken, err := Take(t.Context(), tx, 10)
+		if err != nil || len(taken) != 2 || taken[0].ID != failed.ID {
+			t.Fatalf("Take returned %d events with the error %v, want both", len(taken), err)
+		}
+		if alone, err := TakeOne(t.Context(), tx, failed.ID); err != nil || !alone {
+			t.Fatalf("an event whose wait is over was not taken on its own (%v)", err)
+		}
+		// Processed: a failure reported late changes nothing of it.
+		if err := MarkProcessed(t.Context(), tx, []Event{fine}); err != nil {
+			t.Fatal(err)
+		}
+		if dead, err := Fail(t.Context(), tx, fine, refusal); err != nil || dead {
+			t.Fatalf("the failure of an event that was processed ended with %v and dead-lettered = %t", err, dead)
+		}
+	})
+	if attempts := s.number(t, `SELECT attempts FROM event_inbox WHERE id = $1::uuid`, fine.ID); attempts != 0 {
+		t.Errorf("an event that was processed has %d failed attempts", attempts)
+	}
+	// And nothing that is not an event.
+	within(func(tx pgx.Tx) {
+		if alone, err := TakeOne(t.Context(), tx, "0193a000-0000-7000-8000-0000000000ff"); err != nil || alone {
+			t.Errorf("an event that does not exist was taken (%v)", err)
+		}
+	})
+	// An event that a consumer holds is not taken by another, which does
+	// not wait for it either.
+	within(func(tx pgx.Tx) {
+		if alone, err := TakeOne(t.Context(), tx, failed.ID); err != nil || !alone {
+			t.Fatalf("an event that is due was not taken on its own (%v)", err)
+		}
+		within(func(other pgx.Tx) {
+			quick, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			if alone, err := TakeOne(quick, other, failed.ID); err != nil || alone {
+				t.Errorf("an event that another consumer holds was taken, or waited for (%v)", err)
+			}
+		})
+	})
+}
+
+// The tables refuse what the code would not write of the attempts and of
+// the dead letters.
+func TestTheAttemptsOfAnEventAreTheOnesItCanHave(t *testing.T) {
+	s := newStage(t)
+	event := s.event(noon)
+	if settled, err := s.store.Accept(t.Context(), []Event{event}); err != nil || settled != 1 {
+		t.Fatalf("Accept settled %d events with the error %v", settled, err)
+	}
+	letter := `INSERT INTO event_dead_letters (id, link_id, workspace_id, occurred_at, outcome, method, device, browser, class, rule,
+	                                         rules_version, accepted_at, reason_sqlstate, reason_constraint)
+	           SELECT uuidv7(), link_id, workspace_id, occurred_at, outcome, method, device, browser, class, rule, rules_version, accepted_at, `
+	for _, refused := range []struct {
+		name, statement, constraint string
+	}{
+		{"a fifth failed attempt that stays in the inbox", `UPDATE event_inbox SET attempts = 5, next_attempt_at = now() WHERE id = $1::uuid`, "event_inbox_attempts_check"},
+		{"a negative number of attempts", `UPDATE event_inbox SET attempts = -1 WHERE id = $1::uuid`, "event_inbox_attempts_check"},
+		{"a wait without a failed attempt", `UPDATE event_inbox SET next_attempt_at = now() WHERE id = $1::uuid`, "event_inbox_next_attempt"},
+		{"a reason that is not a code", letter + `'refused', NULL FROM event_inbox WHERE id = $1::uuid`, "event_dead_letters_reason_sqlstate_check"},
+		{"an empty constraint", letter + `'23514', '' FROM event_inbox WHERE id = $1::uuid`, "event_dead_letters_reason_constraint_check"},
+		{"dead letters of no workspace", `INSERT INTO pipeline_counters (day, name, value) SELECT '2026-11-19', 'dead_lettered', 1 WHERE $1 <> ''`, "pipeline_counters_owner"},
+	} {
+		_, err := s.pool.Exec(t.Context(), refused.statement, event.ID)
+		if refusal, ok := postgres.Refused(err); !ok || refusal.Code != "23514" || refusal.Constraint != refused.constraint {
+			t.Errorf("%s: the statement ended with %v, want it refused by %s", refused.name, err, refused.constraint)
+		}
 	}
 }
 

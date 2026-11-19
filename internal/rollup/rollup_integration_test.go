@@ -34,6 +34,8 @@ type stage struct {
 	pool     *pgxpool.Pool
 	inbox    *ingest.Store
 	consumer *Consumer
+	// log is what the consumer logged.
+	log *lockedLog
 	// The workspaces and their links.
 	acme, globex           string
 	spring, summer, autumn string
@@ -49,10 +51,8 @@ func newStage(t *testing.T) *stage {
 	if _, err := postgres.Migrate(t.Context(), pool); err != nil {
 		t.Fatal(err)
 	}
-	s := &stage{
-		pool: pool, consumer: NewConsumer(pool, slog.New(slog.NewJSONHandler(io.Discard, nil))),
-		inbox: ingest.NewStore(pool, slog.New(slog.NewJSONHandler(io.Discard, nil))),
-	}
+	s := &stage{pool: pool, log: &lockedLog{}, inbox: ingest.NewStore(pool, slog.New(slog.NewJSONHandler(io.Discard, nil)))}
+	s.consumer = NewConsumer(pool, slog.New(slog.NewJSONHandler(s.log, nil)))
 	links := link.NewStore(pool, "go.example.dev", rand.Reader)
 	for _, owned := range []struct {
 		workspace *string
@@ -582,6 +582,10 @@ func TestAConsumerGivesUpARowThatAnotherHoldsForTooLong(t *testing.T) {
 	}
 	if pending := s.pending(t); pending != 2 {
 		t.Fatalf("%d events are pending, want both", pending)
+	}
+	// A batch that ran out of time is not a failure of its events.
+	if retried := s.number(t, `SELECT count(*) FROM event_inbox WHERE attempts <> 0`); retried != 0 {
+		t.Errorf("%d events have a failed attempt after a batch that ran out of time", retried)
 	}
 
 	// The first one ends, and both events are counted, once.
