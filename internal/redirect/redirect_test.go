@@ -74,10 +74,7 @@ func hostThatRecords(t *testing.T, clock func() time.Time, proxies string, serve
 func handlerOver(t *testing.T, clock func() time.Time, proxies string, events redirect.Recorder, log io.Writer, served ...link.Served) http.Handler {
 	t.Helper()
 	logger := slog.New(slog.NewJSONHandler(log, nil))
-	copied := resolve.New(links(served), logger)
-	if err := copied.Load(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	copied := resolveOver(t, served...)
 	trusted, err := limits.ParseProxies(proxies)
 	if err != nil {
 		t.Fatal(err)
@@ -89,6 +86,16 @@ func handlerOver(t *testing.T, clock func() time.Time, proxies string, events re
 		t.Fatal(err)
 	}
 	return handler
+}
+
+// resolveOver returns a copy that has read a list of links.
+func resolveOver(t *testing.T, served ...link.Served) *resolve.Replica {
+	t.Helper()
+	copied := resolve.New(links(served), slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	if err := copied.Load(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	return copied
 }
 
 // rules returns the rules as the binary embeds them, read once.

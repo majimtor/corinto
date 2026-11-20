@@ -81,8 +81,10 @@ func runRedirect(ctx context.Context, getenv func(string) string, logger *slog.L
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	events := ingest.NewBuffer(ingest.NewStore(pool, logger), logger)
+	serviceTime := redirect.NewServiceTime()
 	handler, err := redirect.New(ctx, redirect.Settings{
 		Links: links, Logger: logger, Now: time.Now, TrustedProxies: proxies, Rules: rules, Events: events,
+		ServiceTime: serviceTime,
 	})
 	if err != nil {
 		_ = redirectListener.Close()
@@ -100,13 +102,15 @@ func runRedirect(ctx context.Context, getenv func(string) string, logger *slog.L
 		events.Run(flushing)
 	}()
 	// Ready from here on, with the database or without it: the process
-	// answers from its copy. How old the copy is, which is how stale an
-	// answer can be, is what it says of itself where the probes ask.
+	// answers from its copy. What it says of itself where the probes ask
+	// is how old the copy is, which is how stale an answer can be, and how
+	// long its answers have taken.
 	ready := func(context.Context) error { return nil }
 	status := func() any {
 		return struct {
-			Replica resolve.Status `json:"replica"`
-		}{links.Status()}
+			Replica     resolve.Status               `json:"replica"`
+			ServiceTime redirect.ServiceTimeSnapshot `json:"service_time"`
+		}{links.Status(), serviceTime.Snapshot()}
 	}
 	ended := make(chan error, 2)
 	go func() { ended <- redirect.Serve(ctx, redirectListener, handler, logger) }()

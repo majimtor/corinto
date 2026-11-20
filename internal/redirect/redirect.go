@@ -72,6 +72,9 @@ type Settings struct {
 	Rules *classify.Classifier
 	// Events takes what the responses leave behind.
 	Events Recorder
+	// ServiceTime counts how long each request took. Without one nothing
+	// is measured.
+	ServiceTime *ServiceTime
 }
 
 // Recorder takes the event of each response that owes one and counts the
@@ -107,6 +110,13 @@ func New(ctx context.Context, settings Settings) (http.Handler, error) {
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// The whole of it, whatever it answers: the response leaves when this
+	// function returns, so what it does after writing it, handing over the
+	// event, is time the visitor waits too. By the clock of the machine,
+	// not the one of the settings, which says what time it is and not how
+	// long something took.
+	began := time.Now()
+	defer func() { h.ServiceTime.Observe(time.Since(began)) }()
 	header := w.Header()
 	// A link that is disabled stops redirecting for everyone: nothing
 	// between this host and the visitor keeps an answer.

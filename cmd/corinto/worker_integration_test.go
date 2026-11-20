@@ -87,6 +87,13 @@ func TestWhatTheRedirectServesReachesTheFiguresOfItsLink(t *testing.T) {
 	}
 	t.Logf("six accesses were in the figures of their links %s after the first", time.Since(started).Round(100*time.Millisecond))
 
+	// The redirect says how long its six answers took: each is in one
+	// bucket of its histogram, and none took a quarter of a second.
+	if requests, inBuckets, slow, buckets := serviceTime(t, "http://"+announced(t, redirectLog, "health endpoints listening")); requests != 6 || inBuckets != 6 || slow != 0 || buckets != 13 {
+		t.Errorf("the redirect measured %d requests, %d of them in its %d buckets and %d over a quarter of a second; want its six answers in thirteen buckets, none that slow",
+			requests, inBuckets, buckets, slow)
+	}
+
 	// Counted once: nothing changes afterwards.
 	time.Sleep(2 * time.Second)
 	if redirected, inactive, _, processed, _ := figures(); redirected != 5 || inactive != 1 || processed != 6 {
@@ -314,4 +321,41 @@ func TestTheWorkerDeletesWhatIsPastItsTime(t *testing.T) {
 	if strings.Contains(second.String(), "the retention run") {
 		t.Errorf("the second worker did a run, or failed one: %s", second.String())
 	}
+}
+
+// serviceTime asks a redirect how long its answers took, and returns how
+// many requests it measured, how many of them are in a bucket, how many
+// took over a quarter of a second, and how many buckets it has.
+func serviceTime(t *testing.T, probes string) (requests, inBuckets, slow uint64, buckets int) {
+	t.Helper()
+	var measured struct {
+		ServiceTime struct {
+			Requests uint64 `json:"requests"`
+			Buckets  []struct {
+				UpToMS   float64 `json:"up_to_ms"`
+				Requests uint64  `json:"requests"`
+			} `json:"buckets"`
+			Over *uint64 `json:"over"`
+		} `json:"service_time"`
+	}
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, probes+"/statusz", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if err := json.NewDecoder(response.Body).Decode(&measured); err != nil || response.StatusCode != http.StatusOK || measured.ServiceTime.Over == nil {
+		t.Fatalf("GET /statusz of the redirect = %d without the histogram of its service time (%v)", response.StatusCode, err)
+	}
+	slow = *measured.ServiceTime.Over
+	for _, bucket := range measured.ServiceTime.Buckets {
+		inBuckets += bucket.Requests
+		if bucket.UpToMS > 250 {
+			slow += bucket.Requests
+		}
+	}
+	return measured.ServiceTime.Requests, inBuckets, slow, len(measured.ServiceTime.Buckets)
 }
