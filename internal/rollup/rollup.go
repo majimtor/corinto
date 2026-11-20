@@ -181,10 +181,7 @@ func (c *Consumer) together(ctx context.Context) ([]ingest.Event, error) {
 	if err != nil || len(events) == 0 {
 		return nil, err
 	}
-	if err := add(ctx, tx, events); err != nil {
-		return events, err
-	}
-	if err := ingest.MarkProcessed(ctx, tx, events); err != nil {
+	if err := count(ctx, tx, events); err != nil {
 		return events, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -218,10 +215,7 @@ func (c *Consumer) alone(ctx context.Context, event ingest.Event) (bool, error) 
 	if err != nil {
 		return false, fmt.Errorf("begin an attempt: %w", err)
 	}
-	err = add(ctx, attempt, []ingest.Event{event})
-	if err == nil {
-		err = ingest.MarkProcessed(ctx, attempt, []ingest.Event{event})
-	}
+	err = count(ctx, attempt, []ingest.Event{event})
 	if err == nil {
 		if err := attempt.Commit(ctx); err != nil {
 			return false, fmt.Errorf("end an attempt: %w", err)
@@ -256,6 +250,19 @@ func (c *Consumer) alone(ctx context.Context, event ingest.Event) (bool, error) 
 			"event", event.ID, "sqlstate", refusal.Code, "constraint", refusal.Constraint)
 	}
 	return false, nil
+}
+
+// count adds events to the aggregates, marks them as processed and
+// records the versions of the rules that classified them, in the
+// transaction it is given: all of it happens or none does.
+func count(ctx context.Context, tx pgx.Tx, events []ingest.Event) error {
+	if err := add(ctx, tx, events); err != nil {
+		return err
+	}
+	if err := ingest.MarkProcessed(ctx, tx, events); err != nil {
+		return err
+	}
+	return recordVersions(ctx, tx, events)
 }
 
 // series is the key of a row of the time series.
