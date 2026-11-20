@@ -510,6 +510,51 @@ paths:
           $ref: "#/components/responses/Problem"
         "503":
           $ref: "#/components/responses/Problem"
+  /v1/ingestion:
+    get:
+      operationId: getIngestionStatus
+      summary: What became of the events of the workspace, day by day.
+      description: >-
+        Returns, for each of the last days of UTC, how many responses owed
+        the workspace an event and what became of those events, counted by
+        the day of the access. `lost` is what was served and not accepted,
+        and `accepted` is `processed`, `pending` and `dead_lettered` added
+        up, in every answer. It also says how far the events of the whole
+        service are processed, and when what has been kept for its time
+        was last deleted.
+      security:
+        - apiKey: [metrics:read]
+      parameters:
+        - name: days
+          in: query
+          description: How many days to return, today included.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 31
+            default: 7
+      responses:
+        "200":
+          description: The status of the ingestion.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionStatus"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
   /v1/openapi.yaml:
     get:
       operationId: getContract
@@ -1026,6 +1071,78 @@ components:
         value:
           type: string
         estimated_human_clicks:
+          type: integer
+          minimum: 0
+    IngestionStatus:
+      type: object
+      required: [processed_through, retention, days]
+      properties:
+        processed_through:
+          description: >-
+            How far the events of the whole service are processed, as in
+            every answer about metrics: the moment the oldest event that
+            still waits was accepted, or the moment of the answer when none
+            waits.
+          type: string
+          format: date-time
+        retention:
+          description: The job that deletes what has been kept for its time, once a day.
+          type: object
+          required: [last_finished_at]
+          properties:
+            last_finished_at:
+              description: When it last finished, or null when it never has.
+              type: [string, "null"]
+              format: date-time
+        days:
+          description: >-
+            One entry for each day, the oldest first and today the last. A
+            day in which nothing happened is there, with zeros.
+          type: array
+          minItems: 1
+          maxItems: 31
+          items:
+            $ref: "#/components/schemas/IngestionDay"
+    IngestionDay:
+      description: >-
+        What became of the events that the responses of one day owed the
+        workspace.
+      type: object
+      required: [day, served, accepted, lost, processed, pending, dead_lettered]
+      properties:
+        day:
+          description: The day of the accesses, in UTC.
+          type: string
+          format: date
+        served:
+          description: >-
+            Responses that owed an event: a redirect, and the `404` of a
+            link that is disabled, expired or blocked.
+          type: integer
+          minimum: 0
+        accepted:
+          description: Events that reached the inbox, where they are first durable.
+          type: integer
+          minimum: 0
+        lost:
+          description: >-
+            Served and never accepted: the difference between the two,
+            never below zero. It settles once the events that still wait in
+            the memory of the redirect have been written.
+          type: integer
+          minimum: 0
+        processed:
+          description: Accepted events that are in the figures.
+          type: integer
+          minimum: 0
+        pending:
+          description: Accepted events that wait, for their first attempt or a later one.
+          type: integer
+          minimum: 0
+        dead_lettered:
+          description: >-
+            Accepted events that failed on every attempt and were set
+            aside.
           type: integer
           minimum: 0
     Scope:

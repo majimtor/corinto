@@ -120,6 +120,14 @@ pending is there.
 Test: `TestTheReconciliationAddsUp` in `internal/ingest`, against
 PostgreSQL, which drops events on purpose and reads both equalities.
 
+The operation returns the terms of one workspace, read at one moment: the
+second equality holds in every answer, also while events are being
+processed. The events that wait are counted in the inbox, not worked out
+from the other terms, which is what makes the equality worth reading. Lost
+is the difference of the first, and is never shown below zero.
+Test: `TestTheIngestionStatusAddsUpWhileEventsAreProcessed` in
+`internal/api`, against PostgreSQL.
+
 ## When something fails
 
 | What fails | What happens | Where it shows | Checked by |

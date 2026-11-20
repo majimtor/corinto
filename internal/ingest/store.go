@@ -20,9 +20,11 @@ type Store struct {
 	logger *slog.Logger
 }
 
-// executor is what the store asks of a pool: every write is one statement.
+// executor is what the store asks of a pool: every write is one statement,
+// and so is every read.
 type executor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, arguments ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, arguments ...any) pgx.Row
 }
 

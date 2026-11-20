@@ -4,6 +4,7 @@ package api
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -401,8 +402,13 @@ func TestEveryOperationAsksForItsScopeAndNoOther(t *testing.T) {
 	if len(operations) < 10 {
 		t.Fatalf("only %d operations ask for a scope: the contract has at least ten", len(operations))
 	}
-	for _, operation := range operations {
+	for n, operation := range operations {
 		t.Run(operation.id, func(t *testing.T) {
+			// An address of its own for each operation: every one asks once
+			// without a key, and an address that does so more than ten
+			// times in a minute is refused whatever it sends next.
+			s := *s
+			s.address = fmt.Sprintf("203.0.113.%d:40000", 100+n)
 			// A link of its own for each operation: one of them deletes it.
 			target, err := s.store.Create(t.Context(), owner, link.Draft{Destination: "https://example.com/"})
 			if err != nil {

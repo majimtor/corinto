@@ -328,3 +328,41 @@ func TestTheVersionsOfAPeriodAreTheOnesWhoseHoursMeetIt(t *testing.T) {
 		}
 	}
 }
+
+// When the retention job last ran is the end of its last run that has
+// one.
+func TestTheLastRetentionIsTheLastRunThatFinished(t *testing.T) {
+	s := newStage(t)
+	for name, reader := range map[string]*Reader{"in UTC": NewReader(s.pool), "behind UTC": s.behind(t)} {
+		if finished, err := reader.LastRetention(t.Context()); err != nil || finished != nil {
+			t.Errorf("%s: with no run, LastRetention = %v, %v; want none", name, finished, err)
+		}
+	}
+	// A run that began and never ended is not one that ran.
+	if _, err := s.pool.Exec(t.Context(), `INSERT INTO retention_runs (started_at) VALUES (now() - interval '3 days')`); err != nil {
+		t.Fatal(err)
+	}
+	if finished, err := NewReader(s.pool).LastRetention(t.Context()); err != nil || finished != nil {
+		t.Errorf("with a run that never ended, LastRetention = %v, %v; want none", finished, err)
+	}
+	// Two that ended, the later written first, and one of today that is on
+	// its way.
+	var want time.Time
+	err := s.pool.QueryRow(t.Context(),
+		`WITH runs AS (
+		     INSERT INTO retention_runs (started_at, finished_at)
+		     VALUES (now() - interval '1 day', now() - interval '1 day' + interval '2 seconds'),
+		            (now() - interval '2 days', now() - interval '2 days' + interval '2 seconds'),
+		            (now(), NULL)
+		     RETURNING finished_at)
+		 SELECT max(finished_at) FROM runs`).Scan(&want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, reader := range map[string]*Reader{"in UTC": NewReader(s.pool), "behind UTC": s.behind(t)} {
+		finished, err := reader.LastRetention(t.Context())
+		if err != nil || finished == nil || !finished.Equal(want) || finished.Location() != time.UTC {
+			t.Errorf("%s: LastRetention = %v, %v; want %s, in UTC", name, finished, err, want)
+		}
+	}
+}

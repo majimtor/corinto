@@ -5,6 +5,10 @@ Changes to the contracts in this directory, newest first. A change that
 
 ## Unreleased
 
+- `getIngestionStatus` (`GET /v1/ingestion`), which asks for
+  `metrics:read`: for each of the last days of the workspace, what was
+  served, accepted, lost, processed, pending and dead-lettered, with how
+  far the events are processed and when the retention job last finished.
 - The metrics of a link, in three operations that ask for `metrics:read`:
   `getLinkMetricsSummary`, `getLinkMetricsSeries` and
   `getLinkMetricsBreakdown` (`GET /v1/links/{id}/metrics/summary`,

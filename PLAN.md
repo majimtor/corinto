@@ -307,6 +307,10 @@ Three contracts, each with one source (ADR 0011).
   longest 13 months can be, and a series at most 744 points, the hours of
   31 days. A breakdown names at most 100 values, 20 unless asked, and adds
   up the rest.
+- **Ingestion status** returns the terms of the reconciliation of the
+  workspace (section 4) for its last days of UTC, 7 unless asked and 31 at
+  the most, with the instant up to which data is processed and when the
+  retention job last finished.
 - **Contract tests.** Integration tests validate every response against
   the document and fail on an undocumented status code; `oasdiff breaking`
   fails on a breaking change against the last released contract that the

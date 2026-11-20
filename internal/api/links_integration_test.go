@@ -37,6 +37,9 @@ type stage struct {
 	pool    *pgxpool.Pool
 	store   *link.Store
 	keys    *auth.Keys
+	// address is where the requests of a test come from, when it is not
+	// the address of every other test.
+	address string
 }
 
 func newStage(t *testing.T) *stage {
@@ -124,7 +127,11 @@ func (s *stage) do(t *testing.T, credential, method, path string, body any, head
 	for i := 0; i+1 < len(headers); i += 2 {
 		request.Header.Set(headers[i], headers[i+1])
 	}
-	response, err := contracttest.Over(t, from{s.handler, "203.0.113.7:40000"}).Do(request)
+	address := s.address
+	if address == "" {
+		address = "203.0.113.7:40000"
+	}
+	response, err := contracttest.Over(t, from{s.handler, address}).Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}

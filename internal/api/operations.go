@@ -12,6 +12,7 @@ import (
 func operations(document []byte, settings Settings, now func() time.Time) map[string]http.Handler {
 	links := links{store: settings.Links, now: now}
 	metrics := metrics{links: settings.Links, inbox: settings.Inbox, aggregates: settings.Aggregates}
+	ingestion := ingestion{inbox: settings.Inbox, aggregates: settings.Aggregates}
 	return map[string]http.Handler{
 		"getHealth":   http.HandlerFunc(getHealth),
 		"getContract": getContract(document),
@@ -27,6 +28,7 @@ func operations(document []byte, settings Settings, now func() time.Time) map[st
 		"getLinkMetricsSummary":   http.HandlerFunc(metrics.summary),
 		"getLinkMetricsSeries":    http.HandlerFunc(metrics.series),
 		"getLinkMetricsBreakdown": http.HandlerFunc(metrics.breakdown),
+		"getIngestionStatus":      http.HandlerFunc(ingestion.status),
 	}
 }
 
