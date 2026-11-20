@@ -31,6 +31,8 @@ commands:
             their links, deletes once a day what has been kept for its time,
             and has its health endpoints on a port
   migrate   apply the migrations the database does not have yet, and exit
+  seed      delete the demo workspaces and create the ones of the seed
+            again, with their links; print the key of each, once
   operator  act on the database as the operator; run it without an action
             to see the actions
 `
@@ -72,6 +74,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		err = runWorker(ctx, getenv, logger)
 	case args[0] == "migrate":
 		err = runMigrate(ctx, getenv, logger)
+	case args[0] == "seed":
+		err = runSeed(ctx, getenv, stdout, logger)
 	default:
 		usage(stderr)
 		return exitUsage
