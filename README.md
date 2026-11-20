@@ -13,8 +13,16 @@ for what they measure, and signed webhooks in both directions.
 The first slice is built: links, their redirect, an event for each access
 and the figures the events add up to, all of it through the API. The panel
 and the webhooks are the next slices (PLAN.md section 18), so for now the
-tour is a handful of commands. The first one starts everything and prints
-an API key for each of two demo workspaces, that once:
+tour is a handful of commands.
+
+Without installing anything,
+[a codespace](https://codespaces.new/majimtor/corinto) has the system
+running about two and a half minutes after it is opened, and `make seed`
+there prints an API key for each of its two demo workspaces. Its hours
+count against the free allowance of whoever opens it.
+
+On a machine with Docker, `make` and `curl`, the first command below
+starts everything and prints the two keys, that once:
 
 ```sh
 make up
@@ -22,8 +30,10 @@ api=http://127.0.0.1:8080
 key=cor_...   # one of the two keys that make up printed
 ```
 
-Create a link. The answer carries its `id` and its `identifier`, which is
-the path of the short link:
+Create a link. A demo workspace takes destinations under
+`https://www.example.com/` and `https://www.example.org/` and no other.
+The answer carries the `id` of the link and its `identifier`, which is the
+path of the short link:
 
 ```sh
 curl --silent --request POST $api/v1/links \
@@ -113,11 +123,6 @@ Docker, `make` and `curl`. It generates the database password of the stack
 in `deploy/.env`, which is never versioned; `.env.example` lists the
 variables the binary reads. `make down` stops the stack and deletes its
 data.
-
-Without installing anything,
-[a codespace](https://codespaces.new/majimtor/corinto) runs the same command
-when it opens. Its hours count against the free allowance of whoever opens
-it.
 
 ## Working on the repository
 
