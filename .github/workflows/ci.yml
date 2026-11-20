@@ -81,3 +81,16 @@ jobs:
           persist-credentials: false
       - name: Build the image
         run: make image
+
+  load:
+    name: Load smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # A few seconds of the load scenario with wide thresholds: that the
+      # command works and that nothing got worse by an order of magnitude.
+      # A shared runner publishes no figure (ADR 0020).
+      - name: Run the load scenario for a few seconds
+        run: make bench-smoke

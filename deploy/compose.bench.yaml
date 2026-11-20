@@ -1,0 +1,81 @@
+# The system as the load scenario runs it (PLAN.md section 15): the
+# services of compose.yaml, each with the limits that are part of the
+# published figures, and the load generator next to them. `make bench`
+# starts it under its own project name, so it shares nothing with the local
+# stack, and removes it with its data when it is done.
+#
+# No port is published: the load generator reaches the services inside the
+# network of the project, and nothing outside it can.
+name: corinto-bench
+
+services:
+  db:
+    extends:
+      file: compose.yaml
+      service: db
+    # The limits of the plan: one CPU and 1 GB.
+    cpus: 1
+    mem_limit: 1g
+
+  migrate:
+    extends:
+      file: compose.yaml
+      service: migrate
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    extends:
+      file: compose.yaml
+      service: api
+    ports: !reset []
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  redirect:
+    extends:
+      file: compose.yaml
+      service: redirect
+    ports: !reset []
+    # The limits of the plan: one CPU and 256 MB.
+    cpus: 1
+    mem_limit: 256m
+    environment:
+      # The load generator stands for many clients: it says for which
+      # address each request is, as a proxy would, and the redirect
+      # believes it because it comes from this network. The rate limit of
+      # the redirect stays in the path that is measured (ADR 0020).
+      CORINTO_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    extends:
+      file: compose.yaml
+      service: worker
+    ports: !reset []
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # The load generator. It runs only when it is asked to: `docker compose
+  # run`, never `up`. Its version is pinned in the Makefile, with the other
+  # tools.
+  k6:
+    image: ${K6_IMAGE:?run it with make bench, which names the image}
+    profiles: ["load"]
+    volumes:
+      - ../bench:/bench:ro
+    depends_on:
+      api:
+        condition: service_started
+      redirect:
+        condition: service_started
+      worker:
+        condition: service_started
+
+volumes:
+  db-data:
