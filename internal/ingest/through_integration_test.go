@@ -37,9 +37,6 @@ func (s *stage) through(t *testing.T) time.Time {
 // Statement 7, where it is read: the acceptance of the oldest event that
 // still waits, or the moment of the question when none does.
 func TestProcessedThroughIsTheAcceptanceOfTheOldestEventThatWaits(t *testing.T) {
-	local := time.Local
-	time.Local = time.FixedZone("UTC-8", -8*60*60)
-	t.Cleanup(func() { time.Local = local })
 	s := newStage(t)
 	now := func() time.Time {
 		t.Helper()
