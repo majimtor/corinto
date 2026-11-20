@@ -34,6 +34,9 @@ when the first slice ships.
 - [docs/benchmarks.md](docs/benchmarks.md): the objectives of the plan that
   a load run can check, measured on a named machine, with the command that
   reproduces each figure.
+- [docs/privacy.md](docs/privacy.md): what a request to a short link
+  carries, what is kept of it, where and for how long, and what a
+  deployment has to add.
 
 ## Run it
 
