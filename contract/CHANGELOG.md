@@ -8,6 +8,9 @@ that release carries the mark.
 
 ## Unreleased
 
+- `info.version` is the version of the release the document belongs to,
+  and the release tool writes it. It is `0.0.0` in a document that no
+  release holds yet.
 - `getIngestionStatus` (`GET /v1/ingestion`), which asks for
   `metrics:read`: for each of the last days of the workspace, what was
   served, accepted, lost, processed, pending and dead-lettered, with how
