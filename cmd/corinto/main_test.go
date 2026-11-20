@@ -24,6 +24,7 @@ func TestRunRejectsWrongUsage(t *testing.T) {
 		{"extra argument", []string{"api", "now"}},
 		{"extra argument to migrate", []string{"migrate", "up"}},
 		{"extra argument to redirect", []string{"redirect", "now"}},
+		{"extra argument to seed", []string{"seed", "again"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -102,6 +103,21 @@ func TestMigrateNamesItsMissingVariable(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "CORINTO_DATABASE_URL") {
 		t.Errorf("stderr does not name CORINTO_DATABASE_URL: %q", stderr.String())
+	}
+}
+
+func TestSeedNamesEveryMissingVariable(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run(t.Context(), []string{"seed"}, environmentOf(nil), &stdout, &stderr); code != exitFailure {
+		t.Errorf("exit code = %d, want %d", code, exitFailure)
+	}
+	for _, name := range []string{"CORINTO_DATABASE_URL", "CORINTO_REDIRECT_DOMAIN"} {
+		if !strings.Contains(stderr.String(), name) {
+			t.Errorf("stderr does not name %s: %q", name, stderr.String())
+		}
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("a seed that did not run printed %q", stdout.String())
 	}
 }
 
