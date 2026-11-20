@@ -402,10 +402,22 @@ WITH clicks AS (
 )
 SELECT (SELECT count(*) FROM (TABLE expected EXCEPT TABLE stored) AS missing)
      + (SELECT count(*) FROM (TABLE stored EXCEPT TABLE expected) AS extra)`
+	// The versions of the rules as the events that were processed say they
+	// should be, and the ones that are recorded.
+	versionsOff = `
+WITH expected AS (
+    SELECT rules_version AS version,
+           min(date_trunc('hour', occurred_at, 'UTC')) AS first_hour,
+           max(date_trunc('hour', occurred_at, 'UTC')) AS last_hour
+      FROM event_inbox WHERE processed_at IS NOT NULL GROUP BY 1
+)
+SELECT (SELECT count(*) FROM (TABLE expected EXCEPT TABLE rule_versions) AS missing)
+     + (SELECT count(*) FROM (TABLE rule_versions EXCEPT TABLE expected) AS extra)`
 )
 
 // agrees fails unless the aggregates are what the events of the inbox add
-// up to, and every event is processed and counted as such once.
+// up to, every event is processed and counted as such once, and the
+// versions of the rules are recorded with the hours of their events.
 func (s *stage) agrees(t *testing.T, events int) {
 	t.Helper()
 	if off := s.number(t, seriesOff); off != 0 {
@@ -413,6 +425,9 @@ func (s *stage) agrees(t *testing.T, events int) {
 	}
 	if off := s.number(t, breakdownsOff); off != 0 {
 		t.Errorf("%d rows of the breakdowns are not what the events add up to", off)
+	}
+	if off := s.number(t, versionsOff); off != 0 {
+		t.Errorf("%d versions of the rules are not recorded with the hours of their events", off)
 	}
 	if total := s.number(t, `SELECT coalesce(sum(events), 0) FROM link_hourly`); total != int64(events) {
 		t.Errorf("the time series adds up to %d events, want %d", total, events)
@@ -475,6 +490,13 @@ func TestAggregateUpsertsInKeyOrderDoNotDeadlock(t *testing.T) {
 // pending for another one. Meanwhile the others do not wait for it.
 func TestAConsumerThatStopsBeforeTheCommitLeavesItsBatchPending(t *testing.T) {
 	s := newStage(t)
+	// The version of the rules already reaches the hour of these events.
+	// The first batch of an hour writes the row of its version, which is
+	// one for everybody, and the others of that hour wait for its commit.
+	s.accept(t, click(s.summer, s.acme, at(10, 0, 0)))
+	if processed := s.batch(t); processed != 1 {
+		t.Fatalf("Batch processed %d events, want the first", processed)
+	}
 	// A whole batch of one workspace, and then some events of the other:
 	// no row of an aggregate is of both.
 	var events []ingest.Event
@@ -488,7 +510,7 @@ func TestAConsumerThatStopsBeforeTheCommitLeavesItsBatchPending(t *testing.T) {
 	}
 	s.accept(t, events...)
 
-	// A consumer takes a batch, adds it, marks it, and does not commit.
+	// A consumer takes a batch, counts it, and does not commit.
 	stopped, err := s.pool.Begin(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -498,10 +520,7 @@ func TestAConsumerThatStopsBeforeTheCommitLeavesItsBatchPending(t *testing.T) {
 	if err != nil || len(taken) != BatchSize {
 		t.Fatalf("Take returned %d events with the error %v", len(taken), err)
 	}
-	if err := add(t.Context(), stopped, taken); err != nil {
-		t.Fatal(err)
-	}
-	if err := ingest.MarkProcessed(t.Context(), stopped, taken); err != nil {
+	if err := count(t.Context(), stopped, taken); err != nil {
 		t.Fatal(err)
 	}
 
@@ -515,8 +534,8 @@ func TestAConsumerThatStopsBeforeTheCommitLeavesItsBatchPending(t *testing.T) {
 	if processed, err := s.consumer.Batch(quick); err != nil || processed != 0 {
 		t.Fatalf("with a batch held and nothing else pending, Batch processed %d events with the error %v", processed, err)
 	}
-	if total := s.number(t, `SELECT coalesce(sum(events), 0) FROM link_hourly`); total != 100 {
-		t.Fatalf("the time series adds up to %d events, want the 100 of the consumer that committed", total)
+	if total := s.number(t, `SELECT coalesce(sum(events), 0) FROM link_hourly`); total != 101 {
+		t.Fatalf("the time series adds up to %d events, want the first and the 100 of the consumer that committed", total)
 	}
 
 	// The first one stops: nothing of what it did is there, and its
@@ -530,7 +549,7 @@ func TestAConsumerThatStopsBeforeTheCommitLeavesItsBatchPending(t *testing.T) {
 	if processed, err := s.consumer.Batch(t.Context()); err != nil || processed != BatchSize {
 		t.Fatalf("Batch processed %d events with the error %v, want the %d left pending", processed, err, BatchSize)
 	}
-	s.agrees(t, BatchSize+100)
+	s.agrees(t, BatchSize+101)
 }
 
 // Consumers whose batches are of the same many links and days take their

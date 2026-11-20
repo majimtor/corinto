@@ -191,7 +191,9 @@ the first match wins (ADR 0009):
 
 The event stores the rule that matched and the version of the rule set.
 History is never reclassified; a change of rules is marked on the series
-with its date.
+with its date. The aggregates do not carry the version: as events are
+counted, the first and the last hour in which each version classified one
+are recorded.
 
 **The access event** carries its identifier, link, workspace, server time
 to the second, outcome (`redirected` or `inactive`), method, referrer host,
@@ -322,7 +324,8 @@ package:
 - `link`: `workspaces`, `links` (section 2).
 - `auth`: `api_keys`, `sessions`.
 - `ingest`: `event_inbox`, `event_dead_letters`, `pipeline_counters`.
-- `rollup`: `link_hourly`, `link_daily_dimension`, `retention_runs`.
+- `rollup`: `link_hourly`, `link_daily_dimension`, `rule_versions`,
+  `retention_runs`.
 - `webhook`: `webhook_sources`, `webhook_receipts`, `conversion_daily`;
   from S4, `webhook_destinations` and `webhook_deliveries`.
 

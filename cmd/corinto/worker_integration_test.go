@@ -89,6 +89,19 @@ func TestWhatTheRedirectServesReachesTheFiguresOfItsLink(t *testing.T) {
 	if said := workerLog.String(); strings.Contains(said, "k7m2xq9d") || strings.Contains(said, "sentinel") || strings.Contains(said, "could not be processed") {
 		t.Errorf("the log of the worker: %s", said)
 	}
+	// The version of the rules that classified the accesses is recorded,
+	// with the hours of the first and of the last.
+	var versions, theirs int64
+	err := pool.QueryRow(t.Context(),
+		`SELECT (SELECT count(*) FROM rule_versions),
+		        (SELECT count(*) FROM rule_versions AS v
+		          WHERE v.version = (SELECT DISTINCT rules_version FROM event_inbox)
+		            AND v.first_hour = (SELECT min(date_trunc('hour', occurred_at, 'UTC')) FROM event_inbox)
+		            AND v.last_hour = (SELECT max(date_trunc('hour', occurred_at, 'UTC')) FROM event_inbox))`).
+		Scan(&versions, &theirs)
+	if err != nil || versions != 1 || theirs != 1 {
+		t.Errorf("%d versions of the rules are recorded, %d of them with the hours of the accesses (%v); want one", versions, theirs, err)
+	}
 }
 
 func TestTheWorkerRefusesADatabaseThatWasNotMigrated(t *testing.T) {
