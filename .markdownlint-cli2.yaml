@@ -6,3 +6,6 @@ config:
 ignores:
   # Pull request templates start at the second heading level by convention.
   - .github/pull_request_template.md
+  # Written by the release tool from the commit history; its layout is not
+  # ours to change.
+  - CHANGELOG.md

@@ -1,0 +1,53 @@
+name: Release
+
+# Keeps a release pull request open with the changelog and the next version
+# computed from the Conventional Commits on main, tags the version when that
+# pull request merges (ADR 0017), and publishes the image of the release.
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  release-please:
+    name: Release pull request and tag
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # With the workflow token, which is what the action uses when it is
+      # given none: the repository keeps no token of its own. The checks of
+      # a pull request opened with it wait for the maintainer to approve
+      # them (ADR 0017).
+      - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+
+  # In this workflow and not in one of its own: a release created with the
+  # workflow token starts no other workflow.
+  image:
+    name: Image of the release
+    needs: [release-please]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
+      - name: Sign in to the registry with the workflow token
+        env:
+          TOKEN: ${{ github.token }}
+        run: echo "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Build the image for both architectures and push it
+        env:
+          VERSION: ${{ needs.release-please.outputs.tag_name }}
+        run: make release-image VERSION="$VERSION"
