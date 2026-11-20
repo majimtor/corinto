@@ -22,6 +22,22 @@ jobs:
       - name: Compile and run the static analysers
         run: make lint
 
+  contract:
+    name: Contract compatibility
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history with its tags: the contract is compared with
+          # the one of the last release.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Compare the contract with the one of the last release
+        run: make contract
+
   unit:
     name: Unit tests
     runs-on: ubuntu-24.04

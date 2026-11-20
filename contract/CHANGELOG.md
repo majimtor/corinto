@@ -1,7 +1,10 @@
 # Contract changelog
 
 Changes to the contracts in this directory, newest first. A change that
-`oasdiff breaking` reports is marked as breaking.
+`oasdiff breaking` reports is marked as breaking: its entry begins with
+`**Breaking.**`. `make contract` compares the contract with the one of the
+last release, and fails on a breaking change when no entry added since
+that release carries the mark.
 
 ## Unreleased
 
