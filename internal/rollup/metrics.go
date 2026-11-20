@@ -276,3 +276,18 @@ func (r *Reader) RuleVersions(ctx context.Context, period Period) ([]RuleVersion
 	}
 	return versions, nil
 }
+
+// LastRetention returns when the job that deletes what has been kept for
+// its time last finished (PLAN.md section 5), or nil when it never has. A
+// run that began and did not end does not count.
+func (r *Reader) LastRetention(ctx context.Context) (*time.Time, error) {
+	var finished *time.Time
+	if err := r.pool.QueryRow(ctx, `SELECT max(finished_at) FROM retention_runs`).Scan(&finished); err != nil {
+		return nil, fmt.Errorf("read the last run of the retention: %w", err)
+	}
+	if finished != nil {
+		at := finished.UTC()
+		finished = &at
+	}
+	return finished, nil
+}

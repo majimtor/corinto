@@ -18,6 +18,7 @@ import (
 
 	"github.com/majimtor/corinto/contract"
 	"github.com/majimtor/corinto/contract/contracttest"
+	"github.com/majimtor/corinto/internal/ingest"
 	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/rollup"
 )
@@ -562,5 +563,31 @@ func TestTheBoundsOfTheContractAreTheBoundsOfTheMetrics(t *testing.T) {
 		if got := schemas[name].Value.Enum; !slices.Equal(got, want) {
 			t.Errorf("%s is %v in the contract and %v in the reads", name, got, want)
 		}
+	}
+}
+
+// The same for the status of the ingestion: the days of the contract are
+// the days of the reconciliation.
+func TestTheBoundsOfTheContractAreTheBoundsOfTheReconciliation(t *testing.T) {
+	document, err := contract.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var days *openapi3.Schema
+	for _, parameter := range document.Paths.Find("/v1/ingestion").Get.Parameters {
+		if parameter.Value.Name == "days" {
+			days = parameter.Value.Schema.Value
+		}
+	}
+	if days == nil || days.Min == nil || days.Max == nil {
+		t.Fatal("the contract leaves the days of the status without a bound")
+	}
+	if *days.Min != 1 || *days.Max != ingest.MaxDays || fmt.Sprint(days.Default) != fmt.Sprint(ingest.DefaultDays) {
+		t.Errorf("the status covers from %v to %v days in the contract, %v unless asked; the reconciliation up to %d, and %d",
+			*days.Min, *days.Max, days.Default, ingest.MaxDays, ingest.DefaultDays)
+	}
+	listed := document.Components.Schemas["IngestionStatus"].Value.Properties["days"].Value
+	if listed.MaxItems == nil || *listed.MaxItems != ingest.MaxDays || listed.MinItems != 1 {
+		t.Errorf("the status lists from %d to %v days in the contract, and the reconciliation from 1 to %d", listed.MinItems, listed.MaxItems, ingest.MaxDays)
 	}
 }

@@ -155,6 +155,41 @@ func TestWhatTheRedirectServesReachesTheFiguresOfItsLink(t *testing.T) {
 	if behind := time.Since(summary.ProcessedThrough); behind < -time.Minute || behind > time.Minute {
 		t.Errorf("the figures reach %s, %s from now", summary.ProcessedThrough, behind)
 	}
+
+	// And the status of the ingestion says what became of the six
+	// responses that owed an event, the one of the disabled link among
+	// them: all served, accepted and processed, none lost.
+	request, err = http.NewRequestWithContext(t.Context(), http.MethodGet, api+"/v1/ingestion?days=2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+credential)
+	answer, err := contracttest.Client(t).Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = answer.Body.Close() }()
+	said, err := io.ReadAll(answer.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ingestion struct {
+		Days []struct {
+			Served, Accepted, Lost, Processed, Pending int64
+			DeadLettered                               int64 `json:"dead_lettered"`
+		} `json:"days"`
+	}
+	if err := json.Unmarshal(said, &ingestion); err != nil || answer.StatusCode != http.StatusOK || len(ingestion.Days) != 2 {
+		t.Fatalf("the status of the ingestion = %d %s (%v)", answer.StatusCode, said, err)
+	}
+	// Two days, in case the test runs across midnight.
+	total := ingestion.Days[0]
+	total.Served, total.Accepted, total.Lost = total.Served+ingestion.Days[1].Served, total.Accepted+ingestion.Days[1].Accepted, total.Lost+ingestion.Days[1].Lost
+	total.Processed, total.Pending = total.Processed+ingestion.Days[1].Processed, total.Pending+ingestion.Days[1].Pending
+	total.DeadLettered += ingestion.Days[1].DeadLettered
+	if total.Served != 6 || total.Accepted != 6 || total.Lost != 0 || total.Processed != 6 || total.Pending != 0 || total.DeadLettered != 0 {
+		t.Errorf("the status of the ingestion is %s; want 6 served, accepted and processed, and nothing lost, pending or dead-lettered", said)
+	}
 }
 
 func TestTheWorkerRefusesADatabaseThatWasNotMigrated(t *testing.T) {

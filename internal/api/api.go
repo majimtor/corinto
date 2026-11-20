@@ -44,8 +44,9 @@ type Settings struct {
 	TrustedProxies []netip.Prefix
 	// Links holds the links the operations read and write.
 	Links *link.Store
-	// Inbox says how far the events are processed, and Aggregates holds
-	// the figures made of them: what the metrics of a link are read from.
+	// Inbox says how far the events are processed and what became of
+	// them, and Aggregates holds the figures made of them: what the
+	// metrics of a link and the status of the ingestion are read from.
 	Inbox      *ingest.Store
 	Aggregates *rollup.Reader
 }
