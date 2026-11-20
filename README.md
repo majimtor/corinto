@@ -31,6 +31,9 @@ when the first slice ships.
 - [docs/delivery-semantics.md](docs/delivery-semantics.md): what happens to
   an access event between the response and the count, what gives way when
   a part fails, and the test that checks each statement.
+- [docs/benchmarks.md](docs/benchmarks.md): the objectives of the plan that
+  a load run can check, measured on a named machine, with the command that
+  reproduces each figure.
 
 ## Run it
 
