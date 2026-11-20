@@ -324,6 +324,72 @@ func TestGetOnlySeesTheLiveLinksOfItsWorkspace(t *testing.T) {
 	}
 }
 
+// What the metrics of a link ask before they read anything: that the link
+// is of the workspace, with the same answer as Get for the ones that are
+// not, and whether the workspace is a demo.
+func TestALinkIsFoundInItsWorkspaceAndInNoOther(t *testing.T) {
+	pool := database(t)
+	store := link.NewStore(pool, redirectDomain, rand.Reader)
+	owner, stranger := workspace(t, pool, "", ""), workspace(t, pool, "", "")
+	demo := workspace(t, pool, ", demo", ", true")
+	mine, err := store.Create(t.Context(), owner, link.Draft{Destination: "https://example.com/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown, err := store.Create(t.Context(), demo, link.Draft{Destination: "https://example.com/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := store.Create(t.Context(), owner, link.Draft{Destination: "https://example.com/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(t.Context(),
+		`UPDATE links SET state = 'deleted', destination = NULL, resolved_destination = NULL WHERE id = $1`, deleted.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Blocked by the operator, a link is still of its workspace.
+	blocked, err := store.Create(t.Context(), owner, link.Draft{Destination: "https://example.com/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(t.Context(), `UPDATE links SET state = 'blocked' WHERE id = $1`, blocked.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range []struct {
+		name          string
+		workspace, id string
+	}{
+		{"the link of another workspace", stranger, mine.ID},
+		{"the link of a demo workspace, for another", owner, shown.ID},
+		{"a deleted link", owner, deleted.ID},
+		{"a link that never existed", owner, "00000000-0000-7000-8000-000000000000"},
+		{"something that is not an identifier", owner, "k7m2xq9d"},
+		{"a workspace that is not an identifier", "acme", mine.ID},
+	} {
+		if id, demo, err := store.InWorkspace(t.Context(), c.workspace, c.id); !errors.Is(err, link.ErrNotFound) || id != "" || demo {
+			t.Errorf("%s: InWorkspace = %q, %v, %v; want %v", c.name, id, demo, err, link.ErrNotFound)
+		}
+	}
+	for _, c := range []struct {
+		name          string
+		workspace, id string
+		want          string
+		demo          bool
+	}{
+		{"its own link", owner, mine.ID, mine.ID, false},
+		// The identifier comes back as the database writes it.
+		{"its own link, named in capitals", owner, strings.ToUpper(mine.ID), mine.ID, false},
+		{"a blocked link", owner, blocked.ID, blocked.ID, false},
+		{"the link of a demo workspace", demo, shown.ID, shown.ID, true},
+	} {
+		if id, demo, err := store.InWorkspace(t.Context(), c.workspace, c.id); err != nil || id != c.want || demo != c.demo {
+			t.Errorf("%s: InWorkspace = %q, %v, %v; want %q, %v", c.name, id, demo, err, c.want, c.demo)
+		}
+	}
+}
+
 func TestListPagesInTheOrderOfCreationWithoutRepeatingOrSkipping(t *testing.T) {
 	pool := database(t)
 	store := link.NewStore(pool, redirectDomain, rand.Reader)

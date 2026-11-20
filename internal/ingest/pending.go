@@ -163,3 +163,24 @@ func MarkProcessed(ctx context.Context, tx pgx.Tx, events []Event) error {
 	}
 	return nil
 }
+
+// oldestPending is the acceptance of the oldest event that still waits: the
+// first entry of the index of the events that wait.
+const oldestPending = `SELECT accepted_at FROM event_inbox WHERE processed_at IS NULL ORDER BY accepted_at, id LIMIT 1`
+
+// ProcessedThrough returns the moment up to which every accepted event has
+// been processed or dead-lettered: the acceptance of the oldest event that
+// still waits, or the moment of the question when none does
+// (docs/delivery-semantics.md, statement 7). Both are by the clock of the
+// database, which is the one that wrote the acceptance.
+//
+// Whoever answers with figures asks this first and reads the figures
+// after: what they hold then is at least what this says.
+func (s *Store) ProcessedThrough(ctx context.Context) (time.Time, error) {
+	var through time.Time
+	err := s.db.QueryRow(ctx, `SELECT coalesce((`+oldestPending+`), now())`).Scan(&through)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read how far the events are processed: %w", err)
+	}
+	return through.UTC(), nil
+}

@@ -235,6 +235,29 @@ func (s *Store) Get(ctx context.Context, workspaceID, id string) (Link, error) {
 	return found, nil
 }
 
+// InWorkspace finds a link of a workspace without reading it: it returns
+// its identifier as the database writes it, and whether the workspace is a
+// demo, whose traffic is generated and not of visitors. Like Get, it finds
+// no link of another workspace and no deleted one.
+func (s *Store) InWorkspace(ctx context.Context, workspaceID, id string) (found string, demo bool, err error) {
+	workspace, ok := parseID(workspaceID)
+	link, ok2 := parseID(id)
+	if !ok || !ok2 {
+		return "", false, ErrNotFound
+	}
+	err = s.pool.QueryRow(ctx,
+		`SELECT l.id::text, w.demo FROM links AS l JOIN workspaces AS w ON w.id = l.workspace_id
+		  WHERE l.workspace_id = $1 AND l.id = $2 AND l.state <> 'deleted'`,
+		workspace, link).Scan(&found, &demo)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, ErrNotFound
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("find the link in its workspace: %w", err)
+	}
+	return found, demo, nil
+}
+
 // List returns up to limit links of a workspace in the order in which they
 // were created, starting after the link whose identifier is after; an empty
 // after starts at the beginning. It also says whether there are more after
