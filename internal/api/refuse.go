@@ -11,11 +11,13 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/majimtor/corinto/internal/link"
+	"github.com/majimtor/corinto/internal/rollup"
 )
 
-// rejectedBy says, for each rule of a link, which value of the request
-// breaks it and why. Together with refuse it is the one place where what
-// the domain refuses becomes an error of the contract.
+// rejectedBy says, for each rule of a link or of a period of metrics,
+// which value of the request breaks it and why. Together with refuse it is
+// the one place where what the domain refuses becomes an error of the
+// contract.
 var rejectedBy = []struct {
 	rule  error
 	value rejection
@@ -37,6 +39,10 @@ var rejectedBy = []struct {
 	{link.ErrCampaignConflict, rejection{inBody, "/campaign", ReasonConflict}},
 	{link.ErrTitle, rejection{inBody, "/title", ReasonCharacters}},
 	{link.ErrTags, rejection{inBody, "/tags", ReasonCharacters}},
+	{rollup.ErrFromNotAligned, rejection{inQuery, "from", ReasonNotAligned}},
+	{rollup.ErrToNotAligned, rejection{inQuery, "to", ReasonNotAligned}},
+	{rollup.ErrPeriodEmpty, rejection{inQuery, "to", ReasonNotAfterFrom}},
+	{rollup.ErrPeriodTooLong, rejection{inQuery, "to", ReasonPeriodTooLong}},
 }
 
 // refuse answers a request that the domain refused.

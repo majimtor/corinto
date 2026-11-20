@@ -116,7 +116,7 @@ func guarded(t *testing.T, proxies ...string) (http.Handler, *keyring, *clock, *
 	if err != nil {
 		t.Fatal(err)
 	}
-	return guardedWith(t, document, operations(nil, nil, time.Now), proxies...)
+	return guardedWith(t, document, operations(nil, Settings{}, time.Now), proxies...)
 }
 
 func guardedWith(t *testing.T, document *openapi3.T, serving map[string]http.Handler, proxies ...string) (http.Handler, *keyring, *clock, *log) {
@@ -408,7 +408,7 @@ func withWrite(t *testing.T) (*openapi3.T, map[string]http.Handler) {
 		OperationID: "createThing",
 		Security:    &openapi3.SecurityRequirements{{"apiKey": {"links:write"}}},
 	}})
-	serving := operations(nil, nil, time.Now)
+	serving := operations(nil, Settings{}, time.Now)
 	serving["createThing"] = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusCreated, map[string]string{"id": "thing"})
 	})
