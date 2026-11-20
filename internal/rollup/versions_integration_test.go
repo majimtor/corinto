@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/majimtor/corinto/internal/classify"
 	"github.com/majimtor/corinto/internal/ingest"
@@ -142,6 +143,18 @@ func TestAConsumerWithinTheHoursOfAVersionDoesNotWaitForItsRow(t *testing.T) {
 func TestConsumersRecordTheVersionsOfTheRulesInOneOrder(t *testing.T) {
 	s := newStage(t)
 	const rounds, consumers, versions = 6, 8, 8
+	// Every consumer holds a transaction while it waits for the others to
+	// be ready: a connection for each, on a machine of any size.
+	config, err := pgxpool.ParseConfig(s.pool.Config().ConnString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.MaxConns = consumers
+	pool, err := pgxpool.NewWithConfig(t.Context(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
 	for round := range rounds {
 		var ready, done sync.WaitGroup
 		start := make(chan struct{})
@@ -152,7 +165,7 @@ func TestConsumersRecordTheVersionsOfTheRulesInOneOrder(t *testing.T) {
 			}
 			ready.Add(1)
 			done.Go(func() {
-				tx, err := s.pool.Begin(t.Context())
+				tx, err := pool.Begin(t.Context())
 				ready.Done()
 				if err != nil {
 					t.Error(err)
