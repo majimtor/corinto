@@ -301,7 +301,12 @@ Three contracts, each with one source (ADR 0011).
   authenticated by its signature (section 6), and health by nothing.
 - **Metrics queries** take a bounded interval, a granularity and one
   dimension; responses carry the rule versions of the period, the instant
-  up to which data is processed and a flag for synthetic data.
+  up to which data is processed and a flag for synthetic data, which is
+  true in a demo workspace. The interval is half-open and aligned to what
+  it is counted by, hours or days of UTC. It has at most 397 days, the
+  longest 13 months can be, and a series at most 744 points, the hours of
+  31 days. A breakdown names at most 100 values, 20 unless asked, and adds
+  up the rest.
 - **Contract tests.** Integration tests validate every response against
   the document and fail on an undocumented status code; `oasdiff breaking`
   fails on a breaking change against the last released contract that the
