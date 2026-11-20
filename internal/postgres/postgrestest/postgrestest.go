@@ -44,6 +44,11 @@ const ownerLabel = "corinto.postgrestest.owner"
 // already in progress, or that it does not exist.
 const removalWait = 10 * time.Second
 
+// starts is how many times a test binary tries to start its server. Docker
+// on a busy machine sometimes does not have a container ready in the time
+// the library gives it; a second container usually is.
+const starts = 2
+
 var composeImage = regexp.MustCompile(`(?m)^\s*image:\s*(postgres:\S+)\s*$`)
 
 // Main runs the tests of a package with a PostgreSQL server for all of
@@ -83,8 +88,8 @@ func run(m *testing.M) (int, error) {
 		return 0, err
 	}
 	removeOrphans(ctx, os.Stderr)
-	container, err := startServer(ctx)
-	defer func() { _ = testcontainers.TerminateContainer(container) }()
+	container, err := started(ctx, startServer, remove, os.Stderr)
+	defer remove(container)
 	if err != nil {
 		return 0, fmt.Errorf("start PostgreSQL in a container (is Docker running?): %w", err)
 	}
@@ -104,6 +109,35 @@ func run(m *testing.M) (int, error) {
 			return 0, errors.New("the tests were about to exceed the timeout of go test; the container was removed")
 		}
 		return 0, errors.New("interrupted; the container was removed")
+	}
+}
+
+// remove removes a container of this test binary, also one that did not
+// finish starting. With none there is nothing to do.
+func remove(container *tcpostgres.PostgresContainer) {
+	_ = testcontainers.TerminateContainer(container)
+}
+
+// started returns a server that started. One that did not is removed and
+// another is started in its place, up to the number of starts; that it
+// happened is said, so that a slow run can be told from a quick one. When
+// none starts, the error is the one of the last.
+func started(
+	ctx context.Context, start func(context.Context) (*tcpostgres.PostgresContainer, error),
+	remove func(*tcpostgres.PostgresContainer), said io.Writer,
+) (*tcpostgres.PostgresContainer, error) {
+	for attempt := 1; ; attempt++ {
+		container, err := start(ctx)
+		if err == nil {
+			return container, nil
+		}
+		// A start that failed can leave its container behind: it goes
+		// before the next one, and after the last.
+		remove(container)
+		if attempt == starts || ctx.Err() != nil {
+			return nil, err
+		}
+		_, _ = fmt.Fprintf(said, "postgrestest: PostgreSQL did not start in a container and is started once more: %v\n", err)
 	}
 }
 
