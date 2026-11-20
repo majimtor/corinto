@@ -92,7 +92,7 @@ func runAPI(ctx context.Context, getenv func(string) string, logger *slog.Logger
 	defer stop()
 	ended := make(chan error, 2)
 	go func() { ended <- api.Serve(ctx, apiListener, handler, logger) }()
-	go func() { ended <- health.Serve(ctx, healthListener, pool.Ping, logger) }()
+	go func() { ended <- health.Serve(ctx, healthListener, pool.Ping, nil, logger) }()
 	first := <-ended
 	stop()
 	return errors.Join(first, <-ended)
