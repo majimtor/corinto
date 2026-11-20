@@ -8,16 +8,62 @@ short links that redirect, access events recorded without making the
 redirect wait and processed with declared delivery semantics, metrics named
 for what they measure, and signed webhooks in both directions.
 
-## Status
+## A tour
 
-In development. The plan and the architecture decisions are written, and
-the first slice is being built: so far, one binary whose `api` command
-serves the links of a workspace, whose `redirect` command follows them and
-keeps an event of each access, whose `worker` command adds those events to
-the figures of each link, and whose `operator` command creates workspaces
-and issues their keys, and the
-local stack that runs them next to their database. This section goes away
-when the first slice ships.
+The first slice is built: links, their redirect, an event for each access
+and the figures the events add up to, all of it through the API. The panel
+and the webhooks are the next slices (PLAN.md section 18), so for now the
+tour is a handful of commands. The first one starts everything and prints
+an API key for each of two demo workspaces, that once:
+
+```sh
+make up
+api=http://127.0.0.1:8080
+key=cor_...   # one of the two keys that make up printed
+```
+
+Create a link. The answer carries its `id` and its `identifier`, which is
+the path of the short link:
+
+```sh
+curl --silent --request POST $api/v1/links \
+  --header "Authorization: Bearer $key" \
+  --header 'Content-Type: application/json' \
+  --data '{"destination": "https://www.example.com/books/new-arrivals"}'
+id=...           # the id of the answer
+identifier=...   # its identifier
+```
+
+Follow it. `redirect` answers from a copy of the links that it refreshes
+every two seconds, so a link made a moment ago is a `404` until then:
+
+```sh
+curl --include http://127.0.0.1:8082/$identifier
+```
+
+The answer is `302 Found`, with the destination in `Location`. Then read
+what was counted for the link, from the start of today to the end of this
+hour, in UTC:
+
+```sh
+from=$(date -u +%Y-%m-%dT00:00:00Z)
+to=$(date -u -d '+1 hour' +%Y-%m-%dT%H:00:00Z 2>/dev/null ||
+  date -u -v+1H +%Y-%m-%dT%H:00:00Z)
+curl --silent "$api/v1/links/$id/metrics/summary?from=$from&to=$to" \
+  --header "Authorization: Bearer $key"
+```
+
+Within a few seconds it says `"requests":1` and
+`"estimated_human_clicks":0`: the request was counted, and `curl` is not
+taken for a person. Followed from a browser, the link adds one to both.
+`processed_through` says how far the events are processed, and `synthetic`
+is true because the workspace is a demo. What was served, accepted and
+processed on each of the last seven days, which has to add up, is one more
+request:
+
+```sh
+curl --silent $api/v1/ingestion --header "Authorization: Bearer $key"
+```
 
 ## Where to look
 

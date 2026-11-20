@@ -6,6 +6,7 @@ This document is the only source of these statements (ADR 0005). It is
 written before the code of the slice that implements it: each statement
 names the test that checks it or says that it is a declared limit, and
 until that slice closes a name may point at a test that is not written yet.
+S1 is closed: every test named here exists.
 
 The redirect always answers; when something fails, analytics give way.
 
