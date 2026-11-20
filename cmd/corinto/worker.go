@@ -63,7 +63,7 @@ func runWorker(ctx context.Context, getenv func(string) string, logger *slog.Log
 	}()
 	// Ready while the database answers: without it nothing is processed,
 	// and what is accepted waits.
-	err = health.Serve(ctx, healthListener, pool.Ping, logger)
+	err = health.Serve(ctx, healthListener, pool.Ping, nil, logger)
 	stop()
 	<-consumed
 	<-swept

@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -163,7 +164,36 @@ func TestAChangeToALinkReachesTheRedirectWithinFiveSeconds(t *testing.T) {
 	}
 }
 
+// replicaStatus asks a redirect what it says of its copy of the links: how
+// old it is, in seconds, and how many links it holds.
+func replicaStatus(t *testing.T, probes string) (float64, int) {
+	t.Helper()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, probes+"/statusz", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	var said struct {
+		Replica struct {
+			AgeSeconds *float64 `json:"age_seconds"`
+			Links      *int     `json:"links"`
+		} `json:"replica"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&said); err != nil || response.StatusCode != http.StatusOK ||
+		said.Replica.AgeSeconds == nil || said.Replica.Links == nil {
+		t.Fatalf("GET /statusz = %d with a body that is not the status of the replica (%v)", response.StatusCode, err)
+	}
+	return *said.Replica.AgeSeconds, *said.Replica.Links
+}
+
 // Once it has its links the redirect does not need the database to answer.
+// How stale its answers can be is what it says of itself: the age of its
+// copy, which stays small while the database answers and grows when it
+// does not.
 func TestTheRedirectKeepsAnsweringWhenItsDatabaseIsGone(t *testing.T) {
 	databaseURL := postgrestest.NewDatabase(t)
 	env := environmentFor(databaseURL)
@@ -191,6 +221,10 @@ func TestTheRedirectKeepsAnsweringWhenItsDatabaseIsGone(t *testing.T) {
 	probes := "http://" + announced(t, log, "health endpoints listening")
 	if status, _ := follow(t, short+"/"+identifier); status != http.StatusFound {
 		t.Fatalf("with the database there the short link = %d, want 302", status)
+	}
+	// The copy is read every two seconds: it is never much older.
+	if age, links := replicaStatus(t, probes); age < 0 || age > 4 || links != 1 {
+		t.Errorf("with the database there the copy is %.3f seconds old and holds %d links, want under 4 seconds and 1 link", age, links)
 	}
 
 	// The database of this process goes away, with its connections.
@@ -225,6 +259,15 @@ func TestTheRedirectKeepsAnsweringWhenItsDatabaseIsGone(t *testing.T) {
 	}
 	if got := status(t, probes+"/readyz"); got != http.StatusOK {
 		t.Errorf("without the database /readyz = %d, want 200: the process still answers", got)
+	}
+	// A reading failed two seconds after the last one that did not, at the
+	// earliest, and the copy has been getting older since. It still holds
+	// its link.
+	first, links := replicaStatus(t, probes)
+	time.Sleep(1500 * time.Millisecond)
+	second, _ := replicaStatus(t, probes)
+	if first < 2 || second < first+1 || links != 1 {
+		t.Errorf("without the database the copy was %.3f and then %.3f seconds old, with %d links; want over 2 seconds, more than a second apart, and 1 link", first, second, links)
 	}
 	if strings.Count(log.String(), "could not be refreshed") != 1 {
 		t.Errorf("the outage is logged more than once: %s", log.String())

@@ -40,6 +40,10 @@ func TestWhatTheRedirectServesReachesTheFiguresOfItsLink(t *testing.T) {
 	if got := status(t, probes+"/readyz"); got != http.StatusOK {
 		t.Fatalf("/readyz of the worker = %d, want 200", got)
 	}
+	// Only the redirect has something to say of itself.
+	if got := status(t, probes+"/statusz"); got != http.StatusNotFound {
+		t.Errorf("/statusz of the worker = %d, want 404", got)
+	}
 	redirectLog := process(t, env, "redirect")
 	short := "http://" + announced(t, redirectLog, "redirect listening")
 
