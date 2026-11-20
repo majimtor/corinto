@@ -14,7 +14,7 @@ decision record in `docs/adr/`; rules that every change must follow are in
 
 Status of this document: version 1, 2026-11-14, written before the first
 line of application code and revised when a slice closes, last on
-2026-11-16 for S0. Every fact about a provider or a tool carries the date
+2026-11-20 for S1. Every fact about a provider or a tool carries the date
 it was checked; every estimate carries its assumptions.
 
 ## 1. Vision and success criterion
@@ -470,7 +470,12 @@ Flow and history are decided in ADR 0017 and the licence in ADR 0018.
 ## 12. Tests
 
 Each layer enters in the slice the table names. CI minutes are estimates
-until that slice measures them.
+until that slice measures them. Measured at the close of S1, over the last
+six runs on `main`: the unit tests with the race detector take about half
+a minute; the integration, contract and failure tests, which run in one
+job, a minute and a half together; and the load smoke under a minute and a
+half. That is three and a half minutes against the fourteen that the six
+layers of S1 add up to below.
 
 | Layer | Domain failure it catches | Slice | CI |
 | --- | --- | --- | --- |
@@ -523,16 +528,18 @@ creates them again. There is no second mode with other components.
 environment that already has Docker and runs the same command, with the
 session cookie in its HTTPS form (section 9), since the browser reaches the
 panel over HTTPS. With the repository itself on the default two-core
-machine, it took 164 seconds from the start of the environment to the stack
-reporting ready: 63 to create the environment and 101 for `make up`, which
-downloads PostgreSQL and builds the image from source (one run, 2026-11-16,
-with the stack of S0: the database and the `api` process). Above three
-minutes, the README names the local run first. This is 16 seconds under,
-with the smallest stack the project will have, so S1 measures it again
-before the link takes the first place in the README. The free allowance is
-charged to whoever opens the environment. The forwarded port is a proxy
-this project does not configure, and how it treats request headers is not
-documented, so S2 checks that the demo entry works through it.
+machine, it took 155 seconds from the start of the environment to the stack
+reporting ready: 52 to create the environment and 103 for `make up`, which
+downloads PostgreSQL, builds the image from source, starts the three
+processes and seeds (one run, 2026-11-20, with the stack of S1). The first
+measurement, with the database and the `api` process alone, was 164
+seconds (one run, 2026-11-16). With one run of each, the nine seconds
+between them say nothing about the two stacks. Above three minutes, the
+README names the local run first. This is 25 seconds under, so the README
+names the link first. The free allowance is charged to whoever opens the
+environment. The forwarded port is a proxy this project does not
+configure, and how it treats request headers is not documented, so S2
+checks that the demo entry works through it.
 
 **What a reader meets.** Demo workspaces with synthetic data, labelled as
 such; a short link that redirects; the panel with its series and its
@@ -726,16 +733,24 @@ one measurement, taken on the slice with the least design in it, so the
 hours each slice records are what corrects it from here. The hours of S2
 remain an unmeasured estimate until the check that opens that slice.
 
+Revision of 2026-11-20, at the close of S1. S1 took about 32 real hours
+against a probable 74, and under its optimistic 52: 0.43 of the probable,
+after the rescaling above. The later estimates are not multiplied again.
+S1 was server code and its tests; the slices that follow bring a panel, a
+manual accessibility review and tests in browsers, which neither
+measurement resembles. They are likely to be high all the same, and S2 is
+estimated again at the check that opens it.
+
 | Slice | Hours | Weeks at 10 h | Weeks at 5 h |
 | --- | --- | --- | --- |
 | S0 Foundations, closed | 8, against an estimate of 14 / 20 / 30 | 1 | 2 |
-| S1 Redirect and count | 52 / 74 / 110 | 5 / 7 / 11 | 10 / 15 / 22 |
+| S1 Redirect and count, closed | 32, against an estimate of 52 / 74 / 110 | 3 | 6 |
 | S2 Panel and metrics | 27 / 38 / 58 | 3 / 4 / 6 | 5 / 8 / 12 |
 | S3 Inbound webhooks and launch | 14 / 22 / 34 | 1 / 2 / 3 | 3 / 4 / 7 |
-| **Up to launch** | **101 / 142 / 210** | **10 / 14 / 21** | **20 / 28 / 42** |
+| **Up to launch** | **81 / 100 / 132** | **8 / 10 / 13** | **16 / 20 / 26** |
 | S4 Outbound webhooks | 18 / 25 / 38 | 2 / 3 / 4 | 4 / 5 / 8 |
 | S5 Approximate unique clicks | 5 / 8 / 14 | 1 / 1 / 1 | 1 / 2 / 3 |
-| **Whole vision** | **124 / 175 / 262** | **12 / 18 / 26** | **25 / 35 / 52** |
+| **Whole vision** | **104 / 133 / 184** | **10 / 13 / 18** | **21 / 27 / 37** |
 | Public deployment, by trigger | 10 / 16 / 28 | 1 / 2 / 3 | 2 / 3 / 6 |
 
 S0 to S5 are the first stretch. The slices by trigger start when their
@@ -764,7 +779,8 @@ and sees it counted through the API within the lag objective; when
 `make verify` runs the failure tests; and when `make bench` reproduces the
 figures. If the probable doubles, breakdowns other than referrer and the
 break test move to S2; redirect, ingestion, semantics and one published
-figure stay.
+figure stay. Closed on 2026-11-20 in about 32 real hours, with the three
+breakdowns and the break test in it.
 
 **S2 Panel and metrics.** First, the bounded check of ADR 0014; if it
 fails, this slice is estimated again. Then sessions and the demo entry; the
