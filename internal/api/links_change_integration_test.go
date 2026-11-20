@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/getkin/kin-openapi/openapi3"
+
 	"github.com/majimtor/corinto/contract"
 	"github.com/majimtor/corinto/internal/auth"
 	"github.com/majimtor/corinto/internal/link"
@@ -283,14 +285,17 @@ func TestDeleteLinkErasesItAndKeepsItsIdentifier(t *testing.T) {
 // to call it.
 type operationOnALink struct {
 	id, method, path string
-	scope            auth.Scope
-	sent             any
-	header           []string
+	// query is what follows the path, when the operation needs it.
+	query  string
+	scope  auth.Scope
+	sent   any
+	header []string
 }
 
 // operationsOfTheContract walks the contract and returns every operation
-// that asks for a scope. One that takes a body needs an entry here: a new
-// operation fails these tests until somebody says what to send it.
+// that asks for a scope. One that takes a body, or that cannot be asked
+// without a query, needs an entry here: a new operation fails these tests
+// until somebody says what to send it.
 func operationsOfTheContract(t *testing.T) []operationOnALink {
 	t.Helper()
 	bodies := map[string]struct {
@@ -299,6 +304,12 @@ func operationsOfTheContract(t *testing.T) []operationOnALink {
 	}{
 		"createLink": {`{"destination":"https://example.com/"}`, "application/json"},
 		"updateLink": {`{"title":"Changed by the test"}`, patch},
+	}
+	const aDay = "from=2026-11-19T00:00:00Z&to=2026-11-20T00:00:00Z"
+	queries := map[string]string{
+		"getLinkMetricsSummary":   aDay,
+		"getLinkMetricsSeries":    aDay + "&granularity=hour",
+		"getLinkMetricsBreakdown": aDay + "&dimension=device",
 	}
 	document, err := contract.Load(t.Context())
 	if err != nil {
@@ -315,6 +326,18 @@ func operationsOfTheContract(t *testing.T) []operationOnALink {
 				continue
 			}
 			call := operationOnALink{id: operation.OperationID, method: method, path: path, scope: asked.scope}
+			for _, parameters := range []openapi3.Parameters{item.Parameters, operation.Parameters} {
+				for _, parameter := range parameters {
+					if parameter.Value.In != openapi3.ParameterInQuery || !parameter.Value.Required || call.query != "" {
+						continue
+					}
+					query, known := queries[operation.OperationID]
+					if !known {
+						t.Fatalf("the operation %s cannot be asked without a query and this test does not know which", operation.OperationID)
+					}
+					call.query = "?" + query
+				}
+			}
 			if operation.RequestBody != nil {
 				body, known := bodies[operation.OperationID]
 				if !known {
@@ -349,19 +372,19 @@ func TestEveryOperationOnALinkIsClosedToAnotherWorkspace(t *testing.T) {
 		}
 		walked++
 		t.Run(operation.id, func(t *testing.T) {
-			foreign, body := s.do(t, intruder, operation.method, strings.ReplaceAll(operation.path, "{id}", target.ID), operation.sent, operation.header...)
+			foreign, body := s.do(t, intruder, operation.method, strings.ReplaceAll(operation.path, "{id}", target.ID)+operation.query, operation.sent, operation.header...)
 			if foreign.status != http.StatusNotFound || code(t, body) != CodeNotFound {
 				t.Fatalf("%s on a link of another workspace = %d %s, want 404 %s", operation.id, foreign.status, body, CodeNotFound)
 			}
 			missing, nobody := s.do(t, intruder, operation.method,
-				strings.ReplaceAll(operation.path, "{id}", "00000000-0000-7000-8000-000000000000"), operation.sent, operation.header...)
+				strings.ReplaceAll(operation.path, "{id}", "00000000-0000-7000-8000-000000000000")+operation.query, operation.sent, operation.header...)
 			if missing.status != http.StatusNotFound || !bytes.Equal(body, nobody) {
 				t.Errorf("a link of another workspace answers %s and one nobody has %s", body, nobody)
 			}
 		})
 	}
-	if walked < 5 {
-		t.Errorf("only %d operations on a link were walked: the contract has at least five", walked)
+	if walked < 8 {
+		t.Errorf("only %d operations on a link were walked: the contract has at least eight", walked)
 	}
 	after, err := s.store.Get(t.Context(), owner, target.ID)
 	if err != nil || after.Version != target.Version || after.State != link.StateActive || after.Title != "First" {
@@ -375,8 +398,8 @@ func TestEveryOperationAsksForItsScopeAndNoOther(t *testing.T) {
 	s := newStage(t)
 	owner := s.workspace(t, link.WorkspaceDraft{})
 	operations := operationsOfTheContract(t)
-	if len(operations) < 7 {
-		t.Fatalf("only %d operations ask for a scope: the contract has at least seven", len(operations))
+	if len(operations) < 10 {
+		t.Fatalf("only %d operations ask for a scope: the contract has at least ten", len(operations))
 	}
 	for _, operation := range operations {
 		t.Run(operation.id, func(t *testing.T) {
@@ -385,7 +408,7 @@ func TestEveryOperationAsksForItsScopeAndNoOther(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			path := strings.ReplaceAll(operation.path, "{id}", target.ID)
+			path := strings.ReplaceAll(operation.path, "{id}", target.ID) + operation.query
 			others := slices.DeleteFunc(auth.Scopes(), func(scope auth.Scope) bool { return scope == operation.scope })
 
 			without, body := s.do(t, s.key(t, owner, others...), operation.method, path, operation.sent, operation.header...)

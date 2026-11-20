@@ -5,6 +5,15 @@ Changes to the contracts in this directory, newest first. A change that
 
 ## Unreleased
 
+- The metrics of a link, in three operations that ask for `metrics:read`:
+  `getLinkMetricsSummary`, `getLinkMetricsSeries` and
+  `getLinkMetricsBreakdown` (`GET /v1/links/{id}/metrics/summary`,
+  `/series` and `/breakdown`). Each takes a period, `from` and `to`, and
+  answers with how far the figures reach (`processed_through`), whether
+  they are of generated traffic (`synthetic`) and the versions of the
+  rules of the period (`rule_versions`).
+- Three more values of `code` in an entry of `errors`, for a period:
+  `not_aligned`, `not_after_from` and `period_too_long`.
 - The first two operations, neither of which needs a key: `getHealth`
   (`GET /v1/health`) and `getContract` (`GET /v1/openapi.yaml`).
 - `code` in an error is an enumeration, with its first five values:

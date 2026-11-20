@@ -87,11 +87,15 @@ The redirect always answers; when something fails, analytics give way.
    they reach.** A metrics response carries the instant up to which every
    accepted event has been processed or dead-lettered: the acceptance time
    of the oldest pending event, or the time of the response when none is
-   pending. The instant refers to acceptance, not to the access. An event
-   still in the buffer of `redirect` is not accepted yet, so it can belong
-   to an hour the response already covers; while the database accepts
-   writes that gap is at most one flush interval.
-   Test: `TestMetricsSayThroughWhenTheyAreProcessed` in `internal/api`,
+   pending. The instant is of the whole inbox, not of a workspace or a
+   link, and it is read before the figures, so the figures hold at least
+   what it says. It refers to acceptance, not to the access. An event
+   still in the buffer of `redirect`, or in an insert that has not ended,
+   is not accepted yet, so it can belong to an hour the response already
+   covers; while the database accepts writes that gap is at most one flush
+   interval.
+   Tests: `TestMetricsSayThroughWhenTheyAreProcessed` and
+   `TestTheFiguresOfAnAnswerHoldWhatItSaysTheyReach` in `internal/api`,
    against PostgreSQL.
 
 ## Reconciliation

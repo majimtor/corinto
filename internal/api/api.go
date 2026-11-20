@@ -24,8 +24,10 @@ import (
 	"github.com/getkin/kin-openapi/routers"
 
 	"github.com/majimtor/corinto/contract"
+	"github.com/majimtor/corinto/internal/ingest"
 	"github.com/majimtor/corinto/internal/limits"
 	"github.com/majimtor/corinto/internal/link"
+	"github.com/majimtor/corinto/internal/rollup"
 )
 
 // unmatched is the pattern of the handler that answers what no operation
@@ -42,6 +44,10 @@ type Settings struct {
 	TrustedProxies []netip.Prefix
 	// Links holds the links the operations read and write.
 	Links *link.Store
+	// Inbox says how far the events are processed, and Aggregates holds
+	// the figures made of them: what the metrics of a link are read from.
+	Inbox      *ingest.Store
+	Aggregates *rollup.Reader
 }
 
 // New returns the handler of the API: the operations of the contract, each
@@ -56,7 +62,7 @@ func New(ctx context.Context, settings Settings) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read the contract: %w", err)
 	}
-	return newHandler(ctx, document, operations(written, settings.Links, time.Now), settings, time.Now)
+	return newHandler(ctx, document, operations(written, settings, time.Now), settings, time.Now)
 }
 
 // newHandler routes the operations of a document to what serves them. The

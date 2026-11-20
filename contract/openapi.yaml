@@ -367,6 +367,149 @@ paths:
           $ref: "#/components/responses/Problem"
         "503":
           $ref: "#/components/responses/Problem"
+  /v1/links/{id}/metrics/summary:
+    parameters:
+      - $ref: "#/components/parameters/LinkId"
+    get:
+      operationId: getLinkMetricsSummary
+      summary: The figures of a link over a period.
+      description: >-
+        Adds up what the link was asked for between `from` and `to`, which
+        are on the hour in UTC. Like every answer about metrics, it says
+        how far the figures reach and which rules classified them.
+      security:
+        - apiKey: [metrics:read]
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: The figures of the period.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsSummary"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /v1/links/{id}/metrics/series:
+    parameters:
+      - $ref: "#/components/parameters/LinkId"
+    get:
+      operationId: getLinkMetricsSeries
+      summary: The figures of a link, hour by hour or day by day.
+      description: >-
+        Returns the figures of every hour, or of every day of UTC, between
+        `from` and `to`, in order. An hour or a day in which nothing
+        happened is there, with zeros. By the hour, `from` and `to` are on
+        the hour and at most 31 days apart; by the day, they are at
+        midnight in UTC.
+      security:
+        - apiKey: [metrics:read]
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - name: granularity
+          in: query
+          required: true
+          description: What a point of the series covers.
+          schema:
+            $ref: "#/components/schemas/Granularity"
+      responses:
+        "200":
+          description: The series.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsSeries"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
+  /v1/links/{id}/metrics/breakdown:
+    parameters:
+      - $ref: "#/components/parameters/LinkId"
+    get:
+      operationId: getLinkMetricsBreakdown
+      summary: The estimated human clicks of a link, by one dimension.
+      description: >-
+        Returns the values of one dimension that had the most estimated
+        human clicks between `from` and `to`, which are at midnight in UTC:
+        a breakdown is kept by the day. It counts estimated human clicks
+        and no other request, and it is of one dimension, never of two
+        crossed.
+      security:
+        - apiKey: [metrics:read]
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - name: dimension
+          in: query
+          required: true
+          description: What the clicks are told apart by.
+          schema:
+            $ref: "#/components/schemas/Dimension"
+        - name: limit
+          in: query
+          description: >-
+            The most values to name. The clicks of the others are added up
+            in `other`.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: The breakdown.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsBreakdown"
+        "400":
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/Problem"
+        "503":
+          $ref: "#/components/responses/Problem"
   /v1/openapi.yaml:
     get:
       operationId: getContract
@@ -406,6 +549,28 @@ components:
       description: The `id` of the link.
       schema:
         type: string
+    From:
+      name: from
+      in: query
+      required: true
+      description: >-
+        The beginning of the period, which is part of it. A moment on the
+        hour in UTC, or at midnight in UTC where the operation counts by
+        days.
+      schema:
+        type: string
+        format: date-time
+    To:
+      name: to
+      in: query
+      required: true
+      description: >-
+        The end of the period, which is not part of it. Aligned like
+        `from`, later than it, and at most 397 days after it: the longest
+        that the 13 months aggregates are kept for can be.
+      schema:
+        type: string
+        format: date-time
   headers:
     RequestId:
       description: >-
@@ -702,6 +867,167 @@ components:
             What to send as `cursor` for the next page, or null when this is
             the last one. It is opaque: a client sends it back as it came.
           type: [string, "null"]
+    Granularity:
+      description: What a point of a series covers, an hour or a day of UTC.
+      type: string
+      enum: [hour, day]
+    Dimension:
+      description: >-
+        What the estimated human clicks of a breakdown are told apart by.
+        `referrer_host` is the host of the page the click came from, as the
+        requester said it, with `(none)` for the clicks that named no page.
+        `device` and `browser` are closed lists read from the user-agent.
+      type: string
+      enum: [referrer_host, device, browser]
+    Metrics:
+      description: What every answer about the metrics of a link carries.
+      type: object
+      required: [link_id, from, to, processed_through, synthetic, rule_versions]
+      properties:
+        link_id:
+          type: string
+        from:
+          description: The beginning of the period, which is part of it.
+          type: string
+          format: date-time
+        to:
+          description: The end of the period, which is not part of it.
+          type: string
+          format: date-time
+        processed_through:
+          description: >-
+            How far the figures reach: every event accepted before this
+            moment has been counted, or set aside because it could not be.
+            It is the moment the oldest event that still waits was
+            accepted, or the moment of the answer when none waits. It is of
+            the whole service, not of the link. A request served shortly
+            before it may not be in the figures yet: its event is accepted
+            after the request is answered, within a second unless something
+            is failing.
+          type: string
+          format: date-time
+        synthetic:
+          description: >-
+            Whether the figures are of generated traffic and not of
+            visitors. True in a demo workspace.
+          type: boolean
+        rule_versions:
+          description: >-
+            The versions of the classification rules that were in use during
+            the period, the one that began first at the head. More than one
+            means that the rules changed: what comes before and after the
+            `first_hour` of a later version was classified by different
+            rules, and what was classified is never classified again. Empty
+            when the period is before the first event that was classified,
+            or after the last.
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleVersion"
+    RuleVersion:
+      description: >-
+        A version of the classification rules, with the hours of the first
+        and of the last event it classified, in any workspace.
+      type: object
+      required: [version, first_hour, last_hour]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        first_hour:
+          type: string
+          format: date-time
+        last_hour:
+          type: string
+          format: date-time
+    Figures:
+      description: The metrics of a link over some time.
+      type: object
+      required: [requests, inactive_requests, estimated_human_clicks]
+      properties:
+        requests:
+          description: >-
+            How many times the link redirected, whoever asked: crawlers,
+            previews, prefetches and repeated clicks are all in it.
+          type: integer
+          minimum: 0
+        inactive_requests:
+          description: >-
+            How many times the link was asked for while it was disabled,
+            expired or blocked, and did not redirect.
+          type: integer
+          minimum: 0
+        estimated_human_clicks:
+          description: >-
+            The redirects whose request the rules did not take for a
+            prefetch, automation, a preview or a crawler. An estimate from
+            the headers of the request: whatever presents itself as a
+            browser counts, so the error is by excess. They are neither
+            people nor unique clicks.
+          type: integer
+          minimum: 0
+    MetricsSummary:
+      allOf:
+        - $ref: "#/components/schemas/Metrics"
+        - $ref: "#/components/schemas/Figures"
+    MetricsSeries:
+      allOf:
+        - $ref: "#/components/schemas/Metrics"
+        - type: object
+          required: [granularity, points]
+          properties:
+            granularity:
+              $ref: "#/components/schemas/Granularity"
+            points:
+              description: >-
+                One point for every hour or day of the period, in order: at
+                most 744 by the hour and 397 by the day.
+              type: array
+              maxItems: 744
+              items:
+                $ref: "#/components/schemas/MetricsPoint"
+    MetricsPoint:
+      description: The figures of one hour, or of one day of UTC.
+      allOf:
+        - type: object
+          required: [start]
+          properties:
+            start:
+              description: The beginning of the hour or of the day.
+              type: string
+              format: date-time
+        - $ref: "#/components/schemas/Figures"
+    MetricsBreakdown:
+      allOf:
+        - $ref: "#/components/schemas/Metrics"
+        - type: object
+          required: [dimension, items, other]
+          properties:
+            dimension:
+              $ref: "#/components/schemas/Dimension"
+            items:
+              description: >-
+                The values with the most estimated human clicks, the most
+                clicked first, and at most `limit` of them.
+              type: array
+              maxItems: 100
+              items:
+                $ref: "#/components/schemas/BreakdownItem"
+            other:
+              description: >-
+                The estimated human clicks of the values that `items` does
+                not name: the ones past `limit` and, for the referrer host,
+                the hosts past the 100 a link keeps for a day.
+              type: integer
+              minimum: 0
+    BreakdownItem:
+      type: object
+      required: [value, estimated_human_clicks]
+      properties:
+        value:
+          type: string
+        estimated_human_clicks:
+          type: integer
+          minimum: 0
     Scope:
       description: One thing a key may do in its workspace.
       type: string
@@ -790,3 +1116,6 @@ components:
             - not_permitted
             - conflict
             - in_the_past
+            - not_aligned
+            - not_after_from
+            - period_too_long

@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/majimtor/corinto/contract"
 	"github.com/majimtor/corinto/contract/contracttest"
 	"github.com/majimtor/corinto/internal/link"
+	"github.com/majimtor/corinto/internal/rollup"
 )
 
 // log is where a server under test writes while the test reads.
@@ -223,7 +225,7 @@ func failing(t *testing.T, written io.Writer, id string, replacement http.Handle
 	if err != nil {
 		t.Fatal(err)
 	}
-	serving := operations(nil, nil, time.Now)
+	serving := operations(nil, Settings{}, time.Now)
 	serving[id] = replacement
 	settings := Settings{Logger: slog.New(slog.NewJSONHandler(written, nil)), Keys: &keyring{}}
 	handler, err := newHandler(t.Context(), document, serving, settings, time.Now)
@@ -405,7 +407,7 @@ func TestTheServerDoesNotStartUnlessItServesExactlyTheContract(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			document, serving := load(t), operations(nil, nil, time.Now)
+			document, serving := load(t), operations(nil, Settings{}, time.Now)
 			c.change(document, serving)
 			handler, err := newHandler(t.Context(), document, serving, settings, time.Now)
 			if err == nil || handler != nil {
@@ -419,7 +421,7 @@ func TestTheServerDoesNotStartUnlessItServesExactlyTheContract(t *testing.T) {
 		})
 	}
 
-	if _, err := newHandler(t.Context(), load(t), operations(nil, nil, time.Now), settings, time.Now); err != nil {
+	if _, err := newHandler(t.Context(), load(t), operations(nil, Settings{}, time.Now), settings, time.Now); err != nil {
 		t.Errorf("with the contract and the operations as they are: err = %v", err)
 	}
 }
@@ -511,6 +513,54 @@ func TestTheBoundsOfTheContractAreTheBoundsOfALink(t *testing.T) {
 	} {
 		if pair[0] != pair[1] {
 			t.Errorf("%s is %d in the contract and %d in the rules of a link", name, pair[0], pair[1])
+		}
+	}
+}
+
+// The contract states the bounds of what the metrics take and give, and
+// the reads enforce their own: the two are the same numbers and the same
+// lists.
+func TestTheBoundsOfTheContractAreTheBoundsOfTheMetrics(t *testing.T) {
+	document, err := contract.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var limit *openapi3.Schema
+	for _, parameter := range document.Paths.Find("/v1/links/{id}/metrics/breakdown").Get.Parameters {
+		if parameter.Value.Name == "limit" {
+			limit = parameter.Value.Schema.Value
+		}
+	}
+	if limit == nil || limit.Min == nil || limit.Max == nil {
+		t.Fatal("the contract leaves the values of a breakdown without a bound")
+	}
+	if *limit.Min != 1 || *limit.Max != rollup.MaxShares || fmt.Sprint(limit.Default) != fmt.Sprint(rollup.DefaultShares) {
+		t.Errorf("a breakdown names from %v to %v values in the contract, %v unless asked; the reads take up to %d, and %d",
+			*limit.Min, *limit.Max, limit.Default, rollup.MaxShares, rollup.DefaultShares)
+	}
+	schemas := document.Components.Schemas
+	most := func(schema, property string) uint64 {
+		t.Helper()
+		for _, part := range schemas[schema].Value.AllOf {
+			if list := part.Value.Properties[property]; list != nil && list.Value.MaxItems != nil {
+				return *list.Value.MaxItems
+			}
+		}
+		t.Fatalf("the contract leaves %s of %s without a bound", property, schema)
+		return 0
+	}
+	if points := most("MetricsSeries", "points"); points != rollup.MaxPoints {
+		t.Errorf("a series has up to %d points in the contract and %d in the reads", points, rollup.MaxPoints)
+	}
+	if items := most("MetricsBreakdown", "items"); items != rollup.MaxShares {
+		t.Errorf("a breakdown has up to %d items in the contract and %d in the reads", items, rollup.MaxShares)
+	}
+	for name, want := range map[string][]any{
+		"Granularity": {string(rollup.ByHour), string(rollup.ByDay)},
+		"Dimension":   {string(rollup.DimensionReferrerHost), string(rollup.DimensionDevice), string(rollup.DimensionBrowser)},
+	} {
+		if got := schemas[name].Value.Enum; !slices.Equal(got, want) {
+			t.Errorf("%s is %v in the contract and %v in the reads", name, got, want)
 		}
 	}
 }

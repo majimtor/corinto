@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/majimtor/corinto/contract/contracttest"
 	"github.com/majimtor/corinto/internal/postgres/postgrestest"
 )
 
@@ -101,6 +103,53 @@ func TestWhatTheRedirectServesReachesTheFiguresOfItsLink(t *testing.T) {
 		Scan(&versions, &theirs)
 	if err != nil || versions != 1 || theirs != 1 {
 		t.Errorf("%d versions of the rules are recorded, %d of them with the hours of the accesses (%v); want one", versions, theirs, err)
+	}
+
+	// And the figures are what the API answers about the link to a key of
+	// its workspace: the fourth process, and the end of the path.
+	credential, _ := printed(t, env, "issue-key", "--workspace", workspaceID, "--name", "Reports", "--scope", "metrics:read")["key"].(string)
+	var linkID string
+	if err := pool.QueryRow(t.Context(), `SELECT id::text FROM links WHERE identifier = 'k7m2xq9d'`).Scan(&linkID); err != nil {
+		t.Fatal(err)
+	}
+	api := "http://" + announced(t, process(t, env, "api"), "api listening")
+	// Three days around this one, in case the test runs across midnight.
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	period := url.Values{"from": {today.Add(-24 * time.Hour).Format(time.RFC3339)}, "to": {today.Add(48 * time.Hour).Format(time.RFC3339)}}
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, api+"/v1/links/"+linkID+"/metrics/summary?"+period.Encode(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+credential)
+	// The client checks the answer against the contract.
+	response, err := contracttest.Client(t).Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var summary struct {
+		Requests             int64     `json:"requests"`
+		InactiveRequests     int64     `json:"inactive_requests"`
+		EstimatedHumanClicks int64     `json:"estimated_human_clicks"`
+		ProcessedThrough     time.Time `json:"processed_through"`
+		Synthetic            bool      `json:"synthetic"`
+		RuleVersions         []struct {
+			Version int `json:"version"`
+		} `json:"rule_versions"`
+	}
+	if err := json.Unmarshal(body, &summary); err != nil || response.StatusCode != http.StatusOK {
+		t.Fatalf("the summary of the link = %d %s (%v)", response.StatusCode, body, err)
+	}
+	if summary.Requests != 5 || summary.InactiveRequests != 0 || summary.EstimatedHumanClicks != 5 || summary.Synthetic || len(summary.RuleVersions) != 1 {
+		t.Errorf("the summary of the link is %s; want 5 requests, all of them estimated human clicks, under one version of the rules", body)
+	}
+	// Nothing waits: the figures reach the moment of the answer.
+	if behind := time.Since(summary.ProcessedThrough); behind < -time.Minute || behind > time.Minute {
+		t.Errorf("the figures reach %s, %s from now", summary.ProcessedThrough, behind)
 	}
 }
 

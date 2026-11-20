@@ -18,9 +18,11 @@ import (
 
 	"github.com/majimtor/corinto/contract/contracttest"
 	"github.com/majimtor/corinto/internal/auth"
+	"github.com/majimtor/corinto/internal/ingest"
 	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/postgres"
 	"github.com/majimtor/corinto/internal/postgres/postgrestest"
+	"github.com/majimtor/corinto/internal/rollup"
 )
 
 func TestMain(m *testing.M) { postgrestest.Main(m) }
@@ -54,6 +56,7 @@ func newStage(t *testing.T) *stage {
 	}
 	built.handler, err = New(t.Context(), Settings{
 		Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Keys: built.keys, Links: built.store,
+		Inbox: ingest.NewStore(pool, slog.New(slog.NewJSONHandler(io.Discard, nil))), Aggregates: rollup.NewReader(pool),
 	})
 	if err != nil {
 		t.Fatal(err)

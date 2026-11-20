@@ -44,7 +44,8 @@ func codes() []Code {
 type Reason string
 
 // The reasons a value is rejected for. The first seven are what the
-// contract itself can say of a value; the rest are rules of a link.
+// contract itself can say of a value; the rest are rules of a link and, the
+// last three, of a period of metrics.
 const (
 	ReasonRequired       Reason = "required"
 	ReasonUnknown        Reason = "unknown"
@@ -65,6 +66,9 @@ const (
 	ReasonNotPermitted   Reason = "not_permitted"
 	ReasonConflict       Reason = "conflict"
 	ReasonInThePast      Reason = "in_the_past"
+	ReasonNotAligned     Reason = "not_aligned"
+	ReasonNotAfterFrom   Reason = "not_after_from"
+	ReasonPeriodTooLong  Reason = "period_too_long"
 )
 
 // reasons returns every reason, in the order of the contract.
@@ -73,6 +77,7 @@ func reasons() []Reason {
 		ReasonRequired, ReasonUnknown, ReasonInvalid, ReasonTooShort, ReasonTooLong, ReasonTooMany, ReasonDuplicate,
 		ReasonCharacters, ReasonScheme, ReasonCredentials, ReasonHost, ReasonPort, ReasonDotSegment,
 		ReasonRedirectDomain, ReasonNotAllowed, ReasonReserved, ReasonNotPermitted, ReasonConflict, ReasonInThePast,
+		ReasonNotAligned, ReasonNotAfterFrom, ReasonPeriodTooLong,
 	}
 }
 

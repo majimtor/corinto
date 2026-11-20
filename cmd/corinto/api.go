@@ -14,9 +14,11 @@ import (
 	"github.com/majimtor/corinto/internal/api"
 	"github.com/majimtor/corinto/internal/auth"
 	"github.com/majimtor/corinto/internal/health"
+	"github.com/majimtor/corinto/internal/ingest"
 	"github.com/majimtor/corinto/internal/limits"
 	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/postgres"
+	"github.com/majimtor/corinto/internal/rollup"
 )
 
 // schemaCheckTimeout bounds the check of the schema version at start, so
@@ -64,6 +66,8 @@ func runAPI(ctx context.Context, getenv func(string) string, logger *slog.Logger
 		Keys:           auth.NewKeys(pool, rand.Reader),
 		TrustedProxies: proxies,
 		Links:          link.NewStore(pool, redirectDomain, rand.Reader),
+		Inbox:          ingest.NewStore(pool, logger),
+		Aggregates:     rollup.NewReader(pool),
 	})
 	if err != nil {
 		return err
