@@ -132,7 +132,7 @@ Test: `TestTheIngestionStatusAddsUpWhileEventsAreProcessed` in
 
 | What fails | What happens | Where it shows | Checked by |
 | --- | --- | --- | --- |
-| The database is down | Redirects continue from the replica. Events wait in the buffer; once it is full, new ones are dropped and counted when the database returns. The API answers `503` | Age of the replica; lost count | `TestTheDatabaseAbsent` in `cmd/corinto` |
+| The database is down | Redirects continue from the replica. Events wait in the buffer; once it is full, new ones are dropped and counted when the database returns. The API answers `503` | Age of the replica; lost count | `TestTheDatabaseAbsent` in `cmd/corinto`; the full buffer, by statement 3 |
 | `worker` is stopped | Accepted events stay pending. Nothing is lost | Pending count; the instant of statement 7 stops advancing | `TestAConsumerStoppedMidBatch` in `cmd/corinto` |
 | `worker` hangs in the middle of a batch | The database ends its transaction after 30 seconds without a statement. Its events are pending, and the rows it held are free for the others | Pending count | `TestTheDatabaseEndsTheTransactionOfAConsumerThatHangs` in `internal/rollup` |
 | The buffer is full | The new event is dropped and counted | Lost count | Statement 3 |

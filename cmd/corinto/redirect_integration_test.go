@@ -260,14 +260,15 @@ func TestTheRedirectKeepsAnsweringWhenItsDatabaseIsGone(t *testing.T) {
 	if got := status(t, probes+"/readyz"); got != http.StatusOK {
 		t.Errorf("without the database /readyz = %d, want 200: the process still answers", got)
 	}
-	// A reading failed two seconds after the last one that did not, at the
-	// earliest, and the copy has been getting older since. It still holds
-	// its link.
+	// A reading failed two seconds after the last one that did not, and
+	// the copy has been getting older since: a second and a half later it
+	// is past three seconds, which it never is while the database answers.
+	// It still holds its link.
 	first, links := replicaStatus(t, probes)
 	time.Sleep(1500 * time.Millisecond)
 	second, _ := replicaStatus(t, probes)
-	if first < 2 || second < first+1 || links != 1 {
-		t.Errorf("without the database the copy was %.3f and then %.3f seconds old, with %d links; want over 2 seconds, more than a second apart, and 1 link", first, second, links)
+	if second < first+1 || second < 3 || links != 1 {
+		t.Errorf("without the database the copy was %.3f and then %.3f seconds old, with %d links; want it over a second older, past 3 seconds, and 1 link", first, second, links)
 	}
 	if strings.Count(log.String(), "could not be refreshed") != 1 {
 		t.Errorf("the outage is logged more than once: %s", log.String())
