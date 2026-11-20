@@ -356,3 +356,72 @@ func TestTheSeedStopsAtAnIdentifierAnotherWorkspaceHolds(t *testing.T) {
 		t.Errorf("after the run that could finish there are %d demo workspaces with %d links, want 2 and 16", demos, links)
 	}
 }
+
+// Starting the system seeds it the first time and leaves it alone after
+// that: with a demo workspace there, whoever made it, nothing changes.
+func TestTheSeedDoesNothingWhenADemoWorkspaceIsThere(t *testing.T) {
+	s := newStage(t)
+	first, err := RunIfMissing(t.Context(), s.pool, s.links, s.keys, seedDay)
+	if err != nil || len(first) != 2 || len(first[0].Links) != 10 || len(first[1].Links) != 6 {
+		t.Fatalf("on an empty database RunIfMissing = %+v, %v; want the two workspaces of the seed", first, err)
+	}
+	// Somebody creates a link in a demo workspace.
+	if _, err := s.links.Create(t.Context(), first[0].ID, link.Draft{Alias: "my-own-link", Destination: "https://example.com/"}); err != nil {
+		t.Fatal(err)
+	}
+	before := s.held(t, first[0].ID)
+
+	again, err := RunIfMissing(t.Context(), s.pool, s.links, s.keys, seedDay.Add(24*time.Hour))
+	if err != nil || again != nil {
+		t.Fatalf("with the demo workspaces there RunIfMissing = %+v, %v; want nothing done", again, err)
+	}
+	if after := s.held(t, first[0].ID); !slices.Equal(after, before) || s.number(t, `SELECT count(*) FROM workspaces`) != 2 {
+		t.Errorf("the demo workspace holds %v in %v after a seed that had nothing to do, want %v", after, tables, before)
+	}
+	for _, workspace := range first {
+		if _, err := s.keys.Authenticate(t.Context(), workspace.Key); err != nil {
+			t.Errorf("the key of %s is refused after a seed that had nothing to do: %v", workspace.Name, err)
+		}
+	}
+
+	// It waits for its turn like any other seed.
+	other, err := s.pool.Acquire(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Release()
+	if _, err := other.Exec(t.Context(), `SELECT pg_advisory_lock($1, $2)`, turnOfTheJobs, turnOfTheSeed); err != nil {
+		t.Fatal(err)
+	}
+	if seeded, err := RunIfMissing(t.Context(), s.pool, s.links, s.keys, seedDay); !errors.Is(err, ErrBusy) || seeded != nil {
+		t.Errorf("with another seed running, RunIfMissing = %v, %v; want %v", seeded, err, ErrBusy)
+	}
+	if _, err := other.Exec(t.Context(), `SELECT pg_advisory_unlock($1, $2)`, turnOfTheJobs, turnOfTheSeed); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A demo workspace that is not of the seed is a demo workspace too: the
+// seed that starts with the system leaves a database that has one as it
+// is.
+func TestTheSeedThatStartsWithTheSystemLeavesAnyDemoWorkspaceAlone(t *testing.T) {
+	s := newStage(t)
+	sandbox, err := link.CreateWorkspace(t.Context(), s.pool, link.WorkspaceDraft{Name: "Sandbox", Demo: true, MaxLinks: 100, MaxKeys: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seeded, err := RunIfMissing(t.Context(), s.pool, s.links, s.keys, seedDay); err != nil || seeded != nil {
+		t.Fatalf("with a demo workspace there RunIfMissing = %+v, %v; want nothing done", seeded, err)
+	}
+	if workspaces := s.number(t, `SELECT count(*) FROM workspaces WHERE id = $1::uuid`, sandbox.ID); workspaces != 1 || s.number(t, `SELECT count(*) FROM workspaces`) != 1 {
+		t.Error("the seed that had nothing to do deleted or created a workspace")
+	}
+	// A workspace that is not a demo does not count: with only that one
+	// the database is seeded.
+	if _, err := s.pool.Exec(t.Context(), `UPDATE workspaces SET demo = false WHERE id = $1::uuid`, sandbox.ID); err != nil {
+		t.Fatal(err)
+	}
+	if seeded, err := RunIfMissing(t.Context(), s.pool, s.links, s.keys, seedDay); err != nil || len(seeded) != 2 {
+		t.Errorf("with no demo workspace RunIfMissing = %+v, %v; want the two of the seed", seeded, err)
+	}
+}

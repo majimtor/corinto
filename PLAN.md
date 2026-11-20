@@ -513,9 +513,10 @@ emulating.
 
 ## 14. Running, demonstrating and deploying
 
-**Running.** `make up` starts PostgreSQL, applies migrations, seeds, and
-starts `redirect`, `api` and `worker`, with no external service and no
-account anywhere. There is no second mode with other components.
+**Running.** `make up` starts PostgreSQL, applies migrations, starts
+`redirect`, `api` and `worker`, and seeds the demo workspaces when there
+are none, with no external service and no account anywhere. `make seed`
+creates them again. There is no second mode with other components.
 
 **In one click.** A Codespaces link opens the repository in a browser
 environment that already has Docker and runs the same command, with the

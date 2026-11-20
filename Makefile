@@ -21,9 +21,12 @@ REDIRECT_URL := http://127.0.0.1:8082
 REDIRECT_HEALTH_URL := http://127.0.0.1:8083
 WORKER_HEALTH_URL := http://127.0.0.1:8084
 
-.PHONY: up down test integration verify lint secrets docs image
+.PHONY: up down seed test integration verify lint secrets docs image
 
 # Starts the whole system on this machine and waits until it reports ready.
+# The first start seeds two demo workspaces and prints a key for each, this
+# once: only a hash of a key is stored. A later start leaves them as they
+# are and prints no key.
 up: deploy/.env
 	$(COMPOSE) up --build --detach --wait
 	@curl --silent --show-error --fail --output /dev/null \
@@ -34,6 +37,18 @@ up: deploy/.env
 		--retry 30 --retry-delay 1 --retry-all-errors $(WORKER_HEALTH_URL)/readyz
 	@echo "corinto is up; the API on $(API_URL), short links on $(REDIRECT_URL)"
 	@echo "health endpoints on $(HEALTH_URL), $(REDIRECT_HEALTH_URL) and $(WORKER_HEALTH_URL)"
+	@echo "the demo workspaces, with the key of each when this start seeded them:"
+	@$(COMPOSE) exec --no-TTY api /corinto seed --if-missing
+
+# Deletes the demo workspaces and creates them again as the seed has them,
+# with new keys, which it prints once. The redirect is started again,
+# because it answers from its own copy of the links and would otherwise
+# keep the ones that are gone until it reads the whole copy again.
+seed:
+	$(COMPOSE) exec --no-TTY api /corinto seed
+	$(COMPOSE) restart redirect
+	@curl --silent --show-error --fail --output /dev/null \
+		--retry 30 --retry-delay 1 --retry-all-errors $(REDIRECT_HEALTH_URL)/readyz
 
 # Stops the system and deletes its data. The stack is disposable: the next
 # `make up` starts from nothing.

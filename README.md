@@ -38,7 +38,9 @@ One command starts PostgreSQL 18, applies the migrations and starts three
 processes: `api`, which serves the management API on port 8080,
 `redirect`, which answers on the host of the short links on port 8082, and
 `worker`, which adds what `redirect` serves to the figures of each link.
-Their health endpoints are on ports 8081, 8083 and 8084:
+Their health endpoints are on ports 8081, 8083 and 8084. The first start
+also seeds two demo workspaces with their links, and prints an API key for
+each, that once:
 
 ```sh
 make up
@@ -48,7 +50,13 @@ Then `http://127.0.0.1:8081/readyz` answers `ready`,
 `http://127.0.0.1:8083/statusz` says how old the copy of the links that
 `redirect` answers from is, and
 `http://127.0.0.1:8080/v1/openapi.yaml` returns the contract of the API,
-with the operations it has so far. The command needs
+with the operations it has so far. With a key of the seed in the
+`Authorization` header, as `Bearer` and the key,
+`http://127.0.0.1:8080/v1/links` lists the links of its workspace, and
+`http://127.0.0.1:8082/spring-reading` is one of them. `make seed` deletes
+the demo workspaces and creates them again, with new keys.
+
+The command needs
 Docker, `make` and `curl`. It generates the database password of the stack
 in `deploy/.env`, which is never versioned; `.env.example` lists the
 variables the binary reads. `make down` stops the stack and deletes its

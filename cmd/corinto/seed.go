@@ -17,11 +17,19 @@ import (
 	"github.com/majimtor/corinto/internal/seed"
 )
 
+// seedIfMissing is the option that makes the seed do nothing when the
+// database already has a demo workspace.
+const seedIfMissing = "--if-missing"
+
 // runSeed deletes the demo workspaces and creates the ones of the seed
 // again, with their links and a key each. It prints the keys once, as one
 // JSON object on standard output: only a hash of each secret is stored, so
 // what is printed is the only copy. Nothing of a key goes to the log.
-func runSeed(ctx context.Context, getenv func(string) string, stdout io.Writer, logger *slog.Logger) error {
+//
+// With onlyIfMissing it does that only when the database has no demo
+// workspace. When it has one it changes nothing, says so in the log and
+// prints an object with no workspace in it.
+func runSeed(ctx context.Context, onlyIfMissing bool, getenv func(string) string, stdout io.Writer, logger *slog.Logger) error {
 	env := environment{getenv: getenv}
 	databaseURL := env.require("CORINTO_DATABASE_URL")
 	redirectDomain := env.require("CORINTO_REDIRECT_DOMAIN")
@@ -39,9 +47,16 @@ func runSeed(ctx context.Context, getenv func(string) string, stdout io.Writer, 
 		return err
 	}
 
-	seeded, err := seed.Run(ctx, pool, link.NewStore(pool, redirectDomain, rand.Reader), auth.NewKeys(pool, rand.Reader), time.Now())
+	plant := seed.Run
+	if onlyIfMissing {
+		plant = seed.RunIfMissing
+	}
+	seeded, err := plant(ctx, pool, link.NewStore(pool, redirectDomain, rand.Reader), auth.NewKeys(pool, rand.Reader), time.Now())
 	if err != nil {
 		return err
+	}
+	if onlyIfMissing && seeded == nil {
+		logger.InfoContext(ctx, "the demo workspaces are there already; nothing was seeded")
 	}
 	type printedWorkspace struct {
 		ID    string   `json:"id"`
