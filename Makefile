@@ -8,8 +8,10 @@
 GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 MARKDOWNLINT_IMAGE := davidanson/markdownlint-cli2:v0.24.0@sha256:70ead7c0352d22d04bbe612cd96b54ec591538d8f4626cafe391bb2ecf3639ca
 K6_IMAGE := grafana/k6:2.4.0@sha256:d41bb79cd8de5a7ad619b53570e3712633e8bff0937010a5c6c57a4747e7a276
+BUILDKIT_IMAGE := moby/buildkit:v0.35.0@sha256:aa632b921ef07411d2cb77292cd34213d4f7b384001d6fceef1e1f25bf9752bb
 STATICCHECK := go run honnef.co/go/tools/cmd/staticcheck@v0.8.2
 GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+OASDIFF := go run github.com/oasdiff/oasdiff@v1.37.0
 
 # The compose project is named in deploy/compose.yaml. `down` goes by that
 # name, so that it works even when deploy/.env is gone.
@@ -22,7 +24,8 @@ REDIRECT_URL := http://127.0.0.1:8082
 REDIRECT_HEALTH_URL := http://127.0.0.1:8083
 WORKER_HEALTH_URL := http://127.0.0.1:8084
 
-.PHONY: up down seed test integration verify lint secrets docs image bench bench-smoke bench-break
+.PHONY: up down seed test integration verify lint contract secrets docs image image-go-version \
+	release-image bench bench-smoke bench-break
 
 # Starts the whole system on this machine and waits until it reports ready.
 # The first start seeds two demo workspaces and prints a key for each, this
@@ -78,7 +81,7 @@ integration:
 
 # Runs every check CI runs, except code scanning, which runs on GitHub. A
 # clean clone must pass it.
-verify: lint test integration secrets docs image bench-smoke
+verify: lint contract test integration secrets docs image bench-smoke
 
 # Compiles everything and runs the static analysers, over the integration
 # tests too.
@@ -87,6 +90,13 @@ lint:
 	go vet -tags integration ./...
 	$(STATICCHECK) -tags integration ./...
 	$(GOLANGCI_LINT) run
+
+# Compares the contract of the API with the one of the last release, and
+# fails on a breaking change that contract/CHANGELOG.md does not announce.
+# It needs the history with its tags; before the first release there is
+# nothing to compare with.
+contract:
+	OASDIFF="$(OASDIFF)" contract/breaking.sh
 
 # Scans the whole history for secrets. The pre-commit hook looks at what is
 # staged; this finds what got past it. The repository is mounted read-only
@@ -116,11 +126,31 @@ docs:
 
 # Builds the container image. The Go version of the build stage must be the
 # one go.mod names: a mismatch fails here instead of surfacing later.
-image:
+image: image-go-version
+	docker build --file deploy/Dockerfile --tag $(IMAGE):dev .
+
+image-go-version:
 	@test "$$(sed -n 's/^go //p' go.mod)" = \
 		"$$(sed -n 's/^FROM .*golang:\([0-9.]*\)-.*/\1/p' deploy/Dockerfile)" || \
 		{ echo "go.mod and deploy/Dockerfile name different Go versions" >&2; exit 1; }
-	docker build --file deploy/Dockerfile --tag $(IMAGE):dev .
+
+# Builds the image of a release for amd64 and arm64 and pushes it under the
+# tag of the release. The release workflow runs it; by hand it needs a
+# session in the registry. The builder Docker brings keeps one architecture
+# under a name, so the build has a builder of its own, at a pinned version,
+# which is removed when the build ends, however it ends.
+release-image: image-go-version
+	@test -n "$(VERSION)" || \
+		{ echo "name the release: make release-image VERSION=v1.2.3" >&2; exit 1; }
+	docker buildx create --name corinto-release --driver docker-container \
+		--driver-opt image=$(BUILDKIT_IMAGE)
+	docker buildx build --builder corinto-release --file deploy/Dockerfile \
+		--platform linux/amd64,linux/arm64 \
+		--label org.opencontainers.image.source=https://github.com/majimtor/corinto \
+		--label org.opencontainers.image.version=$(VERSION) \
+		--label org.opencontainers.image.revision=$$(git rev-parse HEAD) \
+		--tag $(IMAGE):$(VERSION) --push .; \
+	built=$$?; docker buildx rm corinto-release; exit $$built
 
 # Runs the load scenario of PLAN.md section 15 against a stack of its own,
 # with the limits of the plan, and fails when an objective is missed: the

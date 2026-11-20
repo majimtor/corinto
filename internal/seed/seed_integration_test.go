@@ -124,12 +124,18 @@ func TestTheSeedCreatesTheDemoWorkspacesWithTheirLinksAndAKeyEach(t *testing.T) 
 		t.Fatalf("the seed left %+v, want its two workspaces", seeded)
 	}
 	for n, workspace := range seeded {
-		// A demo, which may choose the identifiers of its links and send
-		// them anywhere, with the quotas of one.
+		// A demo, which may choose the identifiers of its links, with the
+		// list of where they may lead and the quotas of one.
 		if ok := s.number(t, `SELECT count(*) FROM workspaces WHERE id = $1::uuid AND name = $2 AND demo AND may_choose_aliases
-		                         AND state = 'active' AND allowed_destinations = '[]'::jsonb AND max_links = $3 AND max_keys = $4`,
-			workspace.ID, workspace.Name, limits.MaxLinksDemo, limits.MaxKeys); ok != 1 {
-			t.Errorf("%s is not stored as a demo workspace with its quotas", workspace.Name)
+		                         AND state = 'active' AND allowed_destinations = $5::jsonb AND max_links = $3 AND max_keys = $4`,
+			workspace.ID, workspace.Name, limits.MaxLinksDemo, limits.MaxKeys,
+			`[{"scheme":"https","host":"www.example.com","path":"/"},{"scheme":"https","host":"www.example.org","path":"/"}]`); ok != 1 {
+			t.Errorf("%s is not stored as a demo workspace with its list of destinations and its quotas", workspace.Name)
+		}
+		// The list is the one of the workspace, not only of the seed: a
+		// link to anywhere else is refused, whoever asks for it.
+		if _, err := s.links.Create(t.Context(), workspace.ID, link.Draft{Destination: "https://www.example.net/elsewhere"}); !errors.Is(err, link.ErrDestinationNotAllowed) {
+			t.Errorf("%s: a link to a host outside its list: %v, want %v", workspace.Name, err, link.ErrDestinationNotAllowed)
 		}
 		// Its links are the ones of the seed, each by its alias.
 		want := make([]string, len(demos[n].links))
@@ -208,7 +214,7 @@ func TestTheSeedRecreatesTheDemoWorkspacesAndTouchesNoOther(t *testing.T) {
 	}
 	seededLink = listed[0]
 	s.traffic(t, seededLink)
-	if _, err := s.links.Create(t.Context(), first[0].ID, link.Draft{Alias: "my-own-link", Destination: "https://example.com/"}); err != nil {
+	if _, err := s.links.Create(t.Context(), first[0].ID, link.Draft{Alias: "my-own-link", Destination: "https://www.example.com/"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := s.keys.Issue(t.Context(), first[0].ID, auth.Draft{Name: "Mine", Scopes: []auth.Scope{auth.ScopeLinksRead}}); err != nil {
@@ -366,7 +372,7 @@ func TestTheSeedDoesNothingWhenADemoWorkspaceIsThere(t *testing.T) {
 		t.Fatalf("on an empty database RunIfMissing = %+v, %v; want the two workspaces of the seed", first, err)
 	}
 	// Somebody creates a link in a demo workspace.
-	if _, err := s.links.Create(t.Context(), first[0].ID, link.Draft{Alias: "my-own-link", Destination: "https://example.com/"}); err != nil {
+	if _, err := s.links.Create(t.Context(), first[0].ID, link.Draft{Alias: "my-own-link", Destination: "https://www.example.com/"}); err != nil {
 		t.Fatal(err)
 	}
 	before := s.held(t, first[0].ID)

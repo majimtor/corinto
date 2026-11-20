@@ -501,6 +501,7 @@ repositories (checked 2026-11-13). The gates:
 | Build, `go vet`, `staticcheck`, `golangci-lint` | Code that does not compile or that departs from the language's idiom |
 | Unit tests with the race detector | Section 12 |
 | Integration, contract, failure and panel tests | Section 12 |
+| Contract comparison with the last release | A breaking change of the API that its changelog does not announce |
 | Load smoke with wide thresholds | Section 12 |
 | End-to-end tests with axe | Section 12 |
 | Secret scan over the whole history | A secret in a commit |

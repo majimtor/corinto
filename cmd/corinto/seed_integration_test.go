@@ -112,6 +112,41 @@ func TestTheSeedPrintsKeysThatOpenTheAPIAndLinksThatRedirect(t *testing.T) {
 		t.Errorf("a link of %s read with its own key = %d, want 200", seeded[1].Name, status)
 	}
 
+	// A demo workspace is open to whoever starts the system, so its links
+	// lead to the hosts of the seed and nowhere else.
+	create := func(credential, destination string) (int, []byte) {
+		t.Helper()
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, api+"/v1/links", strings.NewReader(`{"destination":"`+destination+`"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+credential)
+		request.Header.Set("Content-Type", "application/json")
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = response.Body.Close() }()
+		body, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response.StatusCode, body
+	}
+	for _, workspace := range seeded {
+		var refused struct {
+			Errors []struct{ In, Field, Code string }
+		}
+		status, body := create(workspace.Key, "https://www.example.net/elsewhere")
+		if err := json.Unmarshal(body, &refused); err != nil || status != http.StatusBadRequest || len(refused.Errors) != 1 ||
+			refused.Errors[0].Field != "/destination" || refused.Errors[0].Code != "not_allowed" {
+			t.Errorf("with the key of %s, a link to a host outside its list = %d %s (%v), want 400 for a destination that is not allowed", workspace.Name, status, body, err)
+		}
+		if status, body := create(workspace.Key, "https://www.example.org/cycles/new"); status != http.StatusCreated {
+			t.Errorf("with the key of %s, a link to a host of its list = %d %s, want 201", workspace.Name, status, body)
+		}
+	}
+
 	// The links redirect, but for the one that has expired.
 	short := "http://" + announced(t, process(t, env, "redirect"), "redirect listening")
 	if status, destination := follow(t, short+"/spring-reading"); status != http.StatusFound ||

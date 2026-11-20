@@ -164,7 +164,7 @@ func forget(ctx context.Context, pool *pgxpool.Pool) error {
 // plant creates one demo workspace with its links and its key.
 func plant(ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *auth.Keys, demo demo, day time.Time) (Workspace, error) {
 	workspace, err := link.CreateWorkspace(ctx, pool, link.WorkspaceDraft{
-		Name: demo.name, Demo: true, MayChooseAliases: true,
+		Name: demo.name, Demo: true, MayChooseAliases: true, Allowed: allowed,
 		MaxLinks: limits.MaxLinksDemo, MaxKeys: limits.MaxKeys,
 	})
 	if err != nil {
