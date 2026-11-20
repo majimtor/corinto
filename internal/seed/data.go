@@ -39,6 +39,15 @@ func in(campaign string, channel [2]string) link.Campaign {
 	return link.Campaign{Source: channel[0], Medium: channel[1], Name: campaign}
 }
 
+// allowed is where the links of a demo workspace may lead: the two hosts
+// the links of the seed lead to, and nowhere else. A demo workspace is open
+// to whoever starts the system, and without a list it would redirect to
+// any address it was given (PLAN.md section 14).
+var allowed = []string{
+	"https://www.example.com/",
+	"https://www.example.org/",
+}
+
 // demos are the two demo workspaces: two, so that what a key of one can do
 // to the resources of the other can be tried. Sixteen links in three
 // campaigns, some of them in none and one that has expired (PLAN.md
