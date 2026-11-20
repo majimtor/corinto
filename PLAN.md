@@ -574,6 +574,32 @@ objective changes with a note; neither happens silently.
 rules say what every published figure carries. Figures live in
 `docs/benchmarks.md`, and `make bench` reproduces them.
 
+**The scenario.** `make bench` starts the system under a project name of
+its own, with the limits above and no published port, seeds it and sends
+the burst: 300 requests a second for ten minutes, at a constant arrival
+rate, from 1,000 simulated client addresses, each far under the rate limit
+of the redirect. Of every hundred requests, 96 follow an active link of
+the seed, three the one that has expired and one a link nobody has.
+Meanwhile a link is disabled and enabled a hundred times: the deactivation
+is the time from the answer of the API to the first `404` of the redirect.
+A run in which the generator leaves out more than one request in a
+thousand is not a measurement.
+
+The service time is the one `redirect` measures of itself and publishes at
+`/statusz`, in a histogram whose buckets end at 0.05, 0.1, 0.25, 0.5, 1,
+2.5, 5, 10, 25, 50, 100, 250 and 1,000 ms, taken as the difference between
+a reading before the run and one after it. It is the whole time the
+process has a request, the hand-over of its event included. The lag of an
+event is from its access, which is kept to the second, to the moment it
+was counted. Storage is the size of the inbox with its indexes, per event
+the run left in it, at the design volume kept for thirty days.
+
+`make bench-smoke`, which CI runs, is the same scenario for twenty seconds
+at 50 requests a second, with every threshold ten times as wide.
+`make bench-break` raises the rate by 300 every thirty seconds until the
+99th percentile of the service time of a ten-second window misses its
+objective.
+
 **Sizing probes.** The measurements taken while planning sized decisions
 and are not published figures. Each is in the context of the record it
 supports: the runtime (ADR 0003), the queue (ADR 0004), the replica

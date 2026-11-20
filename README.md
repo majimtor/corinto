@@ -87,6 +87,11 @@ that need a real PostgreSQL, which they start in a container, and
 checked with `markdownlint-cli2`; the configuration lives in
 `.markdownlint-cli2.yaml`.
 
+`make bench` runs the load scenario of the plan, ten minutes of it, against
+a stack of its own with the limits the plan gives each process, and fails
+when an objective is missed. `make bench-smoke` runs it for a few seconds
+with wide thresholds, which is what CI and `make verify` do.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).

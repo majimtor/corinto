@@ -7,6 +7,7 @@
 # version named here. Update one tool at a time.
 GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 MARKDOWNLINT_IMAGE := davidanson/markdownlint-cli2:v0.24.0@sha256:70ead7c0352d22d04bbe612cd96b54ec591538d8f4626cafe391bb2ecf3639ca
+K6_IMAGE := grafana/k6:2.4.0@sha256:d41bb79cd8de5a7ad619b53570e3712633e8bff0937010a5c6c57a4747e7a276
 STATICCHECK := go run honnef.co/go/tools/cmd/staticcheck@v0.8.2
 GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 
@@ -21,7 +22,7 @@ REDIRECT_URL := http://127.0.0.1:8082
 REDIRECT_HEALTH_URL := http://127.0.0.1:8083
 WORKER_HEALTH_URL := http://127.0.0.1:8084
 
-.PHONY: up down seed test integration verify lint secrets docs image
+.PHONY: up down seed test integration verify lint secrets docs image bench bench-smoke bench-break
 
 # Starts the whole system on this machine and waits until it reports ready.
 # The first start seeds two demo workspaces and prints a key for each, this
@@ -77,7 +78,7 @@ integration:
 
 # Runs every check CI runs, except code scanning, which runs on GitHub. A
 # clean clone must pass it.
-verify: lint test integration secrets docs image
+verify: lint test integration secrets docs image bench-smoke
 
 # Compiles everything and runs the static analysers, over the integration
 # tests too.
@@ -120,3 +121,21 @@ image:
 		"$$(sed -n 's/^FROM .*golang:\([0-9.]*\)-.*/\1/p' deploy/Dockerfile)" || \
 		{ echo "go.mod and deploy/Dockerfile name different Go versions" >&2; exit 1; }
 	docker build --file deploy/Dockerfile --tag $(IMAGE):dev .
+
+# Runs the load scenario of PLAN.md section 15 against a stack of its own,
+# with the limits of the plan, and fails when an objective is missed: the
+# burst, ten minutes of it. It is what the figures of docs/benchmarks.md
+# are reproduced with, on a machine with nothing else to do (ADR 0020).
+bench: deploy/.env
+	K6_IMAGE=$(K6_IMAGE) bench/run.sh burst
+
+# The same scenario for a few seconds, with thresholds ten times as wide.
+# CI runs it: it says that the command works and that nothing got worse by
+# an order of magnitude, and it publishes nothing.
+bench-smoke: deploy/.env
+	K6_IMAGE=$(K6_IMAGE) bench/run.sh smoke
+
+# Raises the rate until the service time misses its objective, and says
+# where. Run by hand, for the figure the plan asks for.
+bench-break: deploy/.env
+	K6_IMAGE=$(K6_IMAGE) bench/run.sh break
