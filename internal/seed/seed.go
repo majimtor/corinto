@@ -57,6 +57,21 @@ type Workspace struct {
 // the old ones until it reads the whole copy again, within five minutes,
 // or is started again.
 func Run(ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *auth.Keys, now time.Time) ([]Workspace, error) {
+	return run(ctx, pool, links, keys, now, false)
+}
+
+// RunIfMissing does what Run does when the database has no demo workspace,
+// and nothing when it has one, which it reports by returning none. It is
+// what starting the system calls: the first start seeds, and the ones
+// after it leave the demo workspaces, and their keys, as they are.
+//
+// A demo workspace that a run left half made counts as one: Run makes it
+// whole again.
+func RunIfMissing(ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *auth.Keys, now time.Time) ([]Workspace, error) {
+	return run(ctx, pool, links, keys, now, true)
+}
+
+func run(ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *auth.Keys, now time.Time, onlyIfMissing bool) ([]Workspace, error) {
 	turn, err := pool.Acquire(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("take a connection for the seed: %w", err)
@@ -79,6 +94,14 @@ func Run(ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *auth.
 		}
 	}()
 
+	// Asked with the turn taken: no other seed creates a demo workspace
+	// between the question and what follows it.
+	if onlyIfMissing {
+		there, err := present(ctx, pool)
+		if err != nil || there {
+			return nil, err
+		}
+	}
 	if err := forget(ctx, pool); err != nil {
 		return nil, err
 	}
@@ -92,6 +115,17 @@ func Run(ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *auth.
 		seeded = append(seeded, planted)
 	}
 	return seeded, nil
+}
+
+// present reports whether the database has a demo workspace.
+func present(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin the search for demo workspaces: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	ids, err := link.DemoWorkspaces(ctx, tx)
+	return len(ids) > 0, err
 }
 
 // forget deletes every demo workspace with what it holds, in one

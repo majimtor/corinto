@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/majimtor/corinto/contract/contracttest"
+	"github.com/majimtor/corinto/internal/auth"
 	"github.com/majimtor/corinto/internal/postgres/postgrestest"
 )
 
@@ -137,6 +139,49 @@ func TestTheSeedPrintsKeysThatOpenTheAPIAndLinksThatRedirect(t *testing.T) {
 	}
 	if demos, links := count(t, pool, "workspaces"), count(t, pool, "links"); demos != 2 || links != 16 {
 		t.Errorf("after two seeds there are %d workspaces and %d links, want 2 and 16", demos, links)
+	}
+}
+
+// What `make up` runs: the first time it seeds and prints the keys, and
+// after that it changes nothing and prints none.
+func TestTheSeedThatStartsWithTheSystemSeedsOnce(t *testing.T) {
+	env, pool := migrated(t)
+	seed := func() ([]seededWorkspace, string) {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		if code := run(t.Context(), []string{"seed", "--if-missing"}, env, &stdout, &stderr); code != exitOK {
+			t.Fatalf("seed --if-missing exit code = %d; log: %s", code, stderr.String())
+		}
+		var printed struct {
+			Workspaces []seededWorkspace `json:"workspaces"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &printed); err != nil || strings.Count(stdout.String(), "\n") != 1 || printed.Workspaces == nil {
+			t.Fatalf("the seed did not print one JSON object with its workspaces on one line: %v: %q", err, stdout.String())
+		}
+		return printed.Workspaces, stderr.String()
+	}
+	first, log := seed()
+	if len(first) != 2 || len(first[0].Links) != 10 || !strings.HasPrefix(first[0].Key, "cor_") || strings.Count(log, "demo workspace seeded") != 2 {
+		t.Fatalf("the first seed printed %d workspaces; log: %s", len(first), log)
+	}
+	again, log := seed()
+	if len(again) != 0 || !strings.Contains(log, "nothing was seeded") || strings.Contains(log, "demo workspace seeded") {
+		t.Fatalf("the second seed printed %d workspaces; log: %s", len(again), log)
+	}
+	// The workspaces and the keys of the first are the ones that are there.
+	keys := auth.NewKeys(pool, rand.Reader)
+	for _, workspace := range first {
+		if principal, err := keys.Authenticate(t.Context(), workspace.Key); err != nil || principal.WorkspaceID != workspace.ID {
+			t.Errorf("the key of %s after a second start: %+v, %v", workspace.Name, principal, err)
+		}
+	}
+	if workspaces, links := count(t, pool, "workspaces"), count(t, pool, "links"); workspaces != 2 || links != 16 {
+		t.Errorf("after two starts there are %d workspaces and %d links, want 2 and 16", workspaces, links)
+	}
+	// Asked without the option, the seed creates them again whatever is
+	// there.
+	if replaced, _ := seedOnce(t, env); len(replaced) != 2 || replaced[0].ID == first[0].ID {
+		t.Error("the seed without the option left the workspaces that were there")
 	}
 }
 

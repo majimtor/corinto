@@ -25,6 +25,9 @@ func TestRunRejectsWrongUsage(t *testing.T) {
 		{"extra argument to migrate", []string{"migrate", "up"}},
 		{"extra argument to redirect", []string{"redirect", "now"}},
 		{"extra argument to seed", []string{"seed", "again"}},
+		{"an option the seed does not have", []string{"seed", "--again"}},
+		{"extra argument after the option of the seed", []string{"seed", "--if-missing", "now"}},
+		{"the option of the seed given to another command", []string{"migrate", "--if-missing"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 )
 
@@ -32,7 +33,8 @@ commands:
             and has its health endpoints on a port
   migrate   apply the migrations the database does not have yet, and exit
   seed      delete the demo workspaces and create the ones of the seed
-            again, with their links; print the key of each, once
+            again, with their links; print the key of each, once. With
+            --if-missing, do nothing when a demo workspace is there
   operator  act on the database as the operator; run it without an action
             to see the actions
 `
@@ -63,6 +65,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	switch {
 	case args[0] == "operator":
 		err = runOperator(ctx, args[1:], getenv, stdout, logger)
+	case slices.Equal(args, []string{"seed", seedIfMissing}):
+		err = runSeed(ctx, true, getenv, stdout, logger)
 	case len(args) != 1:
 		usage(stderr)
 		return exitUsage
@@ -75,7 +79,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	case args[0] == "migrate":
 		err = runMigrate(ctx, getenv, logger)
 	case args[0] == "seed":
-		err = runSeed(ctx, getenv, stdout, logger)
+		err = runSeed(ctx, false, getenv, stdout, logger)
 	default:
 		usage(stderr)
 		return exitUsage
