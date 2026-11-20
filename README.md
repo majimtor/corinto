@@ -44,7 +44,9 @@ Their health endpoints are on ports 8081, 8083 and 8084:
 make up
 ```
 
-Then `http://127.0.0.1:8081/readyz` answers `ready`, and
+Then `http://127.0.0.1:8081/readyz` answers `ready`,
+`http://127.0.0.1:8083/statusz` says how old the copy of the links that
+`redirect` answers from is, and
 `http://127.0.0.1:8080/v1/openapi.yaml` returns the contract of the API,
 with the operations it has so far. The command needs
 Docker, `make` and `curl`. It generates the database password of the stack

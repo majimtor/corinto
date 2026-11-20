@@ -100,11 +100,17 @@ func runRedirect(ctx context.Context, getenv func(string) string, logger *slog.L
 		events.Run(flushing)
 	}()
 	// Ready from here on, with the database or without it: the process
-	// answers from its copy, and how old the copy is goes to the log.
+	// answers from its copy. How old the copy is, which is how stale an
+	// answer can be, is what it says of itself where the probes ask.
 	ready := func(context.Context) error { return nil }
+	status := func() any {
+		return struct {
+			Replica resolve.Status `json:"replica"`
+		}{links.Status()}
+	}
 	ended := make(chan error, 2)
 	go func() { ended <- redirect.Serve(ctx, redirectListener, handler, logger) }()
-	go func() { ended <- health.Serve(ctx, healthListener, ready, logger) }()
+	go func() { ended <- health.Serve(ctx, healthListener, ready, status, logger) }()
 	first := <-ended
 	stop()
 	err = errors.Join(first, <-ended)

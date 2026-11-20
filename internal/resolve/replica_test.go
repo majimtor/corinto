@@ -3,6 +3,7 @@ package resolve
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -255,6 +256,16 @@ func TestTheReplicaKeepsItsLastStateWhenAReadingFails(t *testing.T) {
 	if age := replica.Age(); age != 6*time.Second {
 		t.Errorf("the replica says it is %s old, want 6s", age)
 	}
+	// What it says of itself to whoever operates the process: its age to
+	// the millisecond, and the links it holds.
+	moved.advance(1234567 * time.Microsecond)
+	if status, want := replica.Status(), (Status{AgeSeconds: 7.234, Links: 2}); status != want {
+		t.Errorf("the replica says of itself %+v, want %+v", status, want)
+	}
+	if written, err := json.Marshal(replica.Status()); err != nil || string(written) != `{"age_seconds":7.234,"links":2}` {
+		t.Errorf("the status is written as %s (%v)", written, err)
+	}
+	moved.advance(-1234567 * time.Microsecond)
 	if err := replica.Poll(t.Context()); err == nil {
 		t.Error("a poll that failed returned no error")
 	}
@@ -264,6 +275,11 @@ func TestTheReplicaKeepsItsLastStateWhenAReadingFails(t *testing.T) {
 	replica.refresh(t.Context())
 	if found, _ := replica.Lookup("k7m2xq9d"); found.State != link.StateDisabled || replica.Age() != 0 {
 		t.Errorf("after the database came back the link is %+v and the replica is %s old", found, replica.Age())
+	}
+	// The age is counted from the last reading, in part or in whole, that
+	// succeeded: this one, not the one that loaded the copy.
+	if status := replica.Status(); status != (Status{AgeSeconds: 0, Links: 2}) {
+		t.Errorf("after the database came back the replica says of itself %+v", status)
 	}
 	// The polls after the first one ask again from where the last good
 	// reading was: nothing that happened during the outage is skipped.

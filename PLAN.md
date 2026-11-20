@@ -136,7 +136,8 @@ link and polls until the first 404. Expiry needs no propagation
 (section 2).
 
 **When something fails.** With the database down, the process keeps
-serving its last known state and exposes its age. If the database is absent
+serving its last known state and exposes its age, at `/statusz` on the port
+of its health endpoints. If the database is absent
 at start it fails instead of serving nothing. There is no cache to miss, so
 no hit rate is published; the lag and the memory of the replica are.
 

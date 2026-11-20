@@ -114,6 +114,24 @@ func (r *Replica) Age() time.Duration {
 	return r.now().Sub(r.refreshed)
 }
 
+// Status is what the copy says of itself to whoever operates the process.
+type Status struct {
+	// AgeSeconds is how long ago the copy was last read from the database,
+	// to the millisecond.
+	AgeSeconds float64 `json:"age_seconds"`
+	// Links is how many links the copy holds.
+	Links int `json:"links"`
+}
+
+// Status returns how old the copy is and how many links it holds, both at
+// the same moment.
+func (r *Replica) Status() Status {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	age := r.now().Sub(r.refreshed)
+	return Status{AgeSeconds: float64(age.Milliseconds()) / 1000, Links: len(r.links)}
+}
+
 // Load reads every link. The process calls it before it serves and does
 // not start when it fails: a redirect without its links would answer that
 // none exists. It is also the reconciliation: what it reads replaces the
