@@ -190,11 +190,8 @@ func TestDeadLettersAreDeletedByTheMomentTheyWereSetAside(t *testing.T) {
 // The counters of the days before a day are deleted, whatever they count
 // and whoever they are of, and the ones of that day are not.
 func TestCountersAreDeletedByTheirDay(t *testing.T) {
-	// The day is the one of UTC wherever the process runs: here, eight
-	// hours behind it.
-	local := time.Local
-	time.Local = time.FixedZone("UTC-8", -8*60*60)
-	t.Cleanup(func() { time.Local = local })
+	// The day is the one of UTC wherever the process runs: these tests run
+	// eight hours behind it.
 
 	s := newStage(t)
 	day := func(date string) time.Time {

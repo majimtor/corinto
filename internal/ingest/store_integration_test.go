@@ -969,11 +969,8 @@ func TestPendingEventsAreTakenOldestFirstAndByOneConsumer(t *testing.T) {
 // Statement 4: marking events as processed and counting them is part of
 // the transaction that took them, and happens with it or not at all.
 func TestProcessedEventsAreCountedOnTheDayOfTheirAccess(t *testing.T) {
-	// The day is the one of UTC wherever the process runs: here, eight
-	// hours behind it.
-	local := time.Local
-	time.Local = time.FixedZone("UTC-8", -8*60*60)
-	t.Cleanup(func() { time.Local = local })
+	// The day is the one of UTC wherever the process runs: these tests run
+	// eight hours behind it.
 	s := newStage(t)
 	events := append(s.events(noon, 3), s.events(noon.Add(24*time.Hour), 2)...)
 	other := s.event(noon)

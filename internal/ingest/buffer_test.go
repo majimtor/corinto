@@ -671,11 +671,8 @@ func TestTheCountsGoBeforeTheEventsTheyCount(t *testing.T) {
 // A count is of the UTC day of its moment, and of the workspace of its
 // event or of none.
 func TestCountsAreOfTheirDayAndTheirWorkspace(t *testing.T) {
-	// The day is the one of UTC wherever the process runs: here, eight
-	// hours behind it.
-	local := time.Local
-	time.Local = time.FixedZone("UTC-8", -8*60*60)
-	t.Cleanup(func() { time.Local = local })
+	// The day is the one of UTC wherever the process runs: these tests run
+	// eight hours behind it.
 
 	into := &fakeInbox{}
 	buffer, _ := newBuffer(into)

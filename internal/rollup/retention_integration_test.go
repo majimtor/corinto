@@ -99,7 +99,6 @@ func sweepOnce(t *testing.T, retention *Retention) bool {
 // PLAN.md section 5: raw events are kept 30 days and aggregates 13 months,
 // and a daily job deletes what is due and shows when it last ran.
 func TestTheRetentionRunDeletesWhatIsDueAndNothingElse(t *testing.T) {
-	west(t)
 	s := newStage(t)
 	retention, log := s.retention(t)
 

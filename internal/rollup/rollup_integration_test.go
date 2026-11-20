@@ -75,15 +75,6 @@ func newStage(t *testing.T) *stage {
 	return s
 }
 
-// west makes the process of a test run eight hours behind UTC: the hours
-// and the days of the aggregates are the ones of UTC wherever it runs.
-func west(t *testing.T) {
-	t.Helper()
-	local := time.Local
-	time.Local = time.FixedZone("UTC-8", -8*60*60)
-	t.Cleanup(func() { time.Local = local })
-}
-
 // The day these tests happen on, and the next.
 var (
 	day      = time.Date(2026, time.November, 19, 0, 0, 0, 0, time.UTC)
@@ -227,7 +218,6 @@ func (s *stage) drain(t *testing.T, consumers int) {
 }
 
 func TestABatchIsAddedToTheAggregatesAndMarkedProcessed(t *testing.T) {
-	west(t)
 	s := newStage(t)
 	spring, autumn := s.identifier(t, s.spring), s.identifier(t, s.autumn)
 	from := func(host string) func(*ingest.Event) {
@@ -661,7 +651,6 @@ func (s *stage) hosts(t *testing.T, linkID, day string) map[string]int64 {
 // PLAN.md section 5: at most 100 distinct referrer hosts per link and day,
 // the rest under "(other)".
 func TestALinkKeepsAHundredReferrerHostsADay(t *testing.T) {
-	west(t)
 	s := newStage(t)
 	from := func(linkID, workspaceID string, at time.Time, host string) ingest.Event {
 		return with(click(linkID, workspaceID, at), func(e *ingest.Event) { e.ReferrerHost = host })

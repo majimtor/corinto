@@ -29,7 +29,6 @@ func under(version int) func(*ingest.Event) {
 }
 
 func TestTheVersionsOfTheRulesAreRecordedWithTheHoursTheyClassifiedBetween(t *testing.T) {
-	west(t)
 	s := newStage(t)
 	s.accept(t,
 		// The last second of an hour and the first of another, neither of

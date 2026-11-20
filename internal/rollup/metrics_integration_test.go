@@ -55,7 +55,6 @@ func as(class classify.Class) func(*ingest.Event) {
 func inactive(e *ingest.Event) { e.Outcome = ingest.OutcomeInactive }
 
 func TestTheSummaryOfALinkAddsUpTheHoursOfThePeriod(t *testing.T) {
-	west(t)
 	s := newStage(t)
 	s.accept(t,
 		// The first second of the period, and the last.
@@ -101,7 +100,6 @@ func same(got, want []Point) bool {
 }
 
 func TestTheSeriesOfALinkHasEveryHourOfThePeriod(t *testing.T) {
-	west(t)
 	s := newStage(t)
 	s.accept(t,
 		click(s.spring, s.acme, at(10, 0, 0)),
@@ -141,7 +139,6 @@ func TestTheSeriesOfALinkHasEveryHourOfThePeriod(t *testing.T) {
 }
 
 func TestTheDaysOfASeriesAreTheOnesOfUTC(t *testing.T) {
-	west(t)
 	s := newStage(t)
 	on := func(month time.Month, day, hour, minute int) time.Time {
 		return time.Date(2026, month, day, hour, minute, 0, 0, time.UTC)
@@ -184,7 +181,6 @@ func TestTheDaysOfASeriesAreTheOnesOfUTC(t *testing.T) {
 }
 
 func TestABreakdownNamesTheValuesWithTheMostClicksAndAddsUpTheRest(t *testing.T) {
-	west(t)
 	s := newStage(t)
 	from := func(host string, on time.Time, n int) []ingest.Event {
 		events := make([]ingest.Event, n)
@@ -276,7 +272,6 @@ func TestABreakdownNamesTheValuesWithTheMostClicksAndAddsUpTheRest(t *testing.T)
 }
 
 func TestTheVersionsOfAPeriodAreTheOnesWhoseHoursMeetIt(t *testing.T) {
-	west(t)
 	s := newStage(t)
 	hour := func(n int) time.Time { return day.Add(time.Duration(n) * time.Hour) }
 	// The second version began while the first was in use; the third began

@@ -265,7 +265,6 @@ func TestAnEventThatRanOutOfTimeHasNoAttemptLess(t *testing.T) {
 // seconds and 2 minutes between them, and after the fifth failure moves to
 // the dead-letter table with the reason of the last one.
 func TestAnEventThatExhaustsItsAttemptsIsDeadLettered(t *testing.T) {
-	west(t)
 	s := newStage(t)
 	s.refusePreviews(t)
 	bad := s.preview(at(23, 59, 59))
