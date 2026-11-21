@@ -58,6 +58,16 @@ func read() (objects, fromTheSystem float64) {
 	return float64(samples[0].Value.Uint64()), float64(samples[1].Value.Uint64() - samples[2].Value.Uint64())
 }
 
+// The objective of PLAN.md section 15: so many links, in a process that
+// stays under its limit while it reads its whole copy of them again. The
+// limit is the one deploy/compose.bench.yaml gives `redirect`, in the unit
+// it is counted in there.
+const (
+	expectedLinks = 100_000
+	limitMiB      = 256
+	mebibyte      = 1 << 20
+)
+
 // settle collects what nothing holds and gives the memory back to the
 // system, so that a reading after it is of what is alive.
 func settle() {
@@ -66,13 +76,14 @@ func settle() {
 }
 
 // BenchmarkMemory measures what the copy of the links costs in memory, at
-// four sizes, in megabytes: what the copy holds once it is loaded, and the
+// four sizes, in mebibytes: what the copy holds once it is loaded, and the
 // most the process holds from the system while the whole copy is read
 // again, which is every five minutes. Then the rows that were just read
 // and the copy that is being built are alive next to the copy that is
 // still answering, and that moment is the one a memory limit has to fit.
-// Both are over what the process held before it had any link. It is what
-// ADR 0006 says is published: run it with
+// Both are over what the process held before it had any link. It fails
+// when the links the plan expects do not fit in the limit of the process.
+// It is what ADR 0006 says is published: run it with
 //
 //	make bench-replica
 func BenchmarkMemory(b *testing.B) {
@@ -84,8 +95,12 @@ func BenchmarkMemory(b *testing.B) {
 			}
 			b.ReportMetric(0, "ns/op")
 			b.ReportMetric(held/float64(links), "held-B/link")
-			b.ReportMetric(held/1e6, "held-MB")
-			b.ReportMetric(most/1e6, "most-MB")
+			b.ReportMetric(held/mebibyte, "held-MiB")
+			b.ReportMetric(most/mebibyte, "most-MiB")
+			if links == expectedLinks && most/mebibyte >= limitMiB {
+				b.Errorf("with %d links the process holds %.1f MiB while their copy is read again, and its limit is %d MiB",
+					links, most/mebibyte, limitMiB)
+			}
 		})
 	}
 }

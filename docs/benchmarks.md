@@ -6,8 +6,8 @@ and the largest, and each run is the whole scenario: ten minutes. How a
 figure is measured is in PLAN.md section 15 and in ADR 0020; this document
 holds what was measured, where and when. What was not measured is at the
 end, as an objective and not as a fact. The memory of the replica, which
-is no objective and which the plan says is published (section 3), has a
-section of its own, with its conditions.
+the plan says is published (section 3), has a section of its own, with
+its conditions.
 
 ## Conditions
 
@@ -122,10 +122,12 @@ four sizes, both over what the process held before it had any link: what
 the copy holds once it is loaded, and the most the process holds from the
 system while the whole copy is read again, which is every five minutes.
 The second is the account of the Go runtime: what it has asked the system
-for, less what it has given back.
-At that moment the rows that were just read and the copy that is being
-built are alive next to the copy that is still answering, and that is the
-moment a memory limit has to fit.
+for, less what it has given back. At that moment the rows that were just
+read and the copy that is being built are alive next to the copy that is
+still answering, and that is the moment a memory limit has to fit.
+
+Memory is in MiB here, 1,048,576 bytes, because the limit is counted in
+them: the 256 MB the plan gives `redirect` are 256 MiB for Docker.
 
 | | |
 | --- | --- |
@@ -139,25 +141,28 @@ moment a memory limit has to fit.
 
 | Links | Held by the copy | Per link | Most held while it is read again: median | Smallest | Largest |
 | --- | --- | --- | --- | --- | --- |
-| 100,000 | 39.7 MB | 397 bytes | 91.9 MB | 91.4 MB | 94.1 MB |
-| 200,000 | 79.5 MB | 397 bytes | 184.7 MB | 182.7 MB | 184.9 MB |
-| 250,000 | 122.9 MB | 492 bytes | 277.6 MB | 277.2 MB | 278.8 MB |
-| 1,000,000 | 491.7 MB | 492 bytes | 1,110 MB | 1,110 MB | 1,123 MB |
+| 100,000 | 37.9 MiB | 397 bytes | 88.2 MiB | 87.0 MiB | 89.6 MiB |
+| 200,000 | 75.8 MiB | 397 bytes | 175.9 MiB | 173.8 MiB | 177.0 MiB |
+| 250,000 | 117.2 MiB | 492 bytes | 264.7 MiB | 264.6 MiB | 265.9 MiB |
+| 1,000,000 | 469.0 MiB | 492 bytes | 1,059 MiB | 1,059 MiB | 1,071 MiB |
 
-What the copy holds came out the same in the five runs, within 0.02 MB.
+What the copy holds came out the same in the five runs, within 0.02 MiB.
 A link does not cost one figure: the map behind the copy grows in steps,
 and a link costs more when the map has just grown, as between 200,000 and
 250,000.
 
-`redirect` is limited to 256 MB (PLAN.md section 15). By these figures a
-copy of 200,000 links stays 71 MB under the limit while it is read again,
-and one of 250,000 goes 22 MB over it. The plan names no number of links
-to expect. The condition that reopens ADR 0006, the memory of the replica
-over the limit of the process at the expected number of links, is met
-somewhere between those two sizes.
+The plan expects 100,000 links (PLAN.md section 15), a number it set
+after this measurement. With them the process holds 88 MiB of its 256
+while the copy is read again: the objective is met, and the command fails
+when it is not. By these figures a copy of 200,000 links still stays
+80 MiB under the limit, and one of 250,000 goes 9 MiB over it. The
+condition that reopens ADR 0006, the memory of the replica over the limit
+of the process at the expected number of links, would be met somewhere
+between those two sizes.
 
 The sizing probe of that record had 34 MB for 100,000 links and 265 MB for
-a million. The copy as it is built holds 39.7 MB and 491.7 MB.
+a million. The copy as it is built holds 39.7 MB and 491.7 MB, which are
+the 37.9 and 469.0 MiB above.
 
 ## What was not measured
 
@@ -187,6 +192,7 @@ The first two need Docker and `make`. Each run starts a stack of its own,
 seeds it, and removes it with its data when it ends. A run fails when an
 objective is missed, and prints each figure on a line that begins with
 `figure:`. The third needs Go and `make`, and about 1.2 GB of memory for
-its largest size. It prints a line for each size and run: `held-MB` and
-`held-B/link` are what the copy holds, and `most-MB` the most the process
-held.
+its largest size. It prints a line for each size and run: `held-MiB` and
+`held-B/link` are what the copy holds, and `most-MiB` the most the process
+held. It fails when the links the plan expects do not fit in the limit of
+`redirect`.
