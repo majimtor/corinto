@@ -5,7 +5,8 @@ Changes to the contracts in this directory, newest first. A change that
 `**Breaking.**`. `make contract` compares the contract with the one of the
 last release, and fails on a breaking change when no entry added since
 that release carries the mark. An entry waits under `Unreleased` until a
-release, and then moves under its version.
+release, and then moves under its version: `make contract` fails while the
+entries of the last release are still under `Unreleased`.
 
 ## Unreleased
 

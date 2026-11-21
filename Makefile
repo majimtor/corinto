@@ -92,7 +92,8 @@ lint:
 	$(GOLANGCI_LINT) run
 
 # Compares the contract of the API with the one of the last release, and
-# fails on a breaking change that contract/CHANGELOG.md does not announce.
+# fails on a breaking change that contract/CHANGELOG.md does not announce,
+# and while the entries of that release are still under `Unreleased` there.
 # It needs the history with its tags; before the first release there is
 # nothing to compare with.
 contract:
