@@ -4,9 +4,17 @@ Changes to the contracts in this directory, newest first. A change that
 `oasdiff breaking` reports is marked as breaking: its entry begins with
 `**Breaking.**`. `make contract` compares the contract with the one of the
 last release, and fails on a breaking change when no entry added since
-that release carries the mark.
+that release carries the mark. An entry waits under `Unreleased` until a
+release, and then moves under its version.
 
 ## Unreleased
+
+- The values of a breakdown by `device` and by `browser` are in the
+  contract: the schemas `Device` and `Browser` list them, and the
+  description of a value names them. They are the values the API already
+  returned.
+
+## 0.1.0 (2026-11-20)
 
 - `info.version` is the version of the release the document belongs to,
   and the release tool writes it. It is `0.0.0` in a document that no
