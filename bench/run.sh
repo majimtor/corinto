@@ -57,29 +57,60 @@ dc --profile load run --rm \
 # result, said by the last window it printed, and not a failure of the run.
 [ "$mode" != break ] || failed=0
 
-# What the load generator cannot see is read from the database, once the
-# worker has gone through what was accepted.
+# What the load generator cannot see is read from the database, once it has
+# stopped changing. `redirect` writes what it holds every second, the
+# counts of what it served first and the events after them, and the worker
+# counts an event within another second. So that nothing is pending is not
+# enough: it is also true before the last of those writes arrives. Two
+# readings three seconds apart that are the same, with nothing pending,
+# have no write between them.
+state() {
+	sql "SELECT concat_ws(' ', (SELECT coalesce(sum(value), 0) FROM pipeline_counters), (SELECT count(*) FROM event_inbox),
+	                      (SELECT count(*) FROM event_inbox WHERE processed_at IS NULL))"
+}
 waited=0
-while [ "$(sql "SELECT count(*) FROM event_inbox WHERE processed_at IS NULL")" != 0 ]; do
-	waited=$((waited + 1))
-	[ "$waited" -le 120 ] || { echo "after two minutes events are still pending" >&2; failed=1; break; }
-	sleep 1
+before=
+while now=$(state) && { [ "$now" != "$before" ] || [ "${now##* }" != 0 ]; }; do
+	[ "$waited" -lt 120 ] || { echo "after two minutes the counts still change or events are still pending" >&2; failed=1; break; }
+	waited=$((waited + 3))
+	before=$now
+	sleep 3
 done
 
+# The figures and whether they meet the objectives are read by one
+# statement, which sees one moment: what is printed is what was judged.
 # Lost is what was served and never accepted. The lag of an event is from
 # its access, which is kept to the second, to the moment it was counted.
 # The storage is what an event takes in the inbox, with its indexes and
 # with the rows that processing it left behind, at the volume of the plan:
 # a million events a day, kept for thirty days.
-echo "figure: events accepted $(sql "SELECT count(*) FROM event_inbox")"
-echo "figure: events lost $(sql "SELECT coalesce(sum(value) FILTER (WHERE name = 'served'), 0) - coalesce(sum(value) FILTER (WHERE name = 'accepted'), 0) FROM pipeline_counters")"
-echo "figure: ingestion lag p95 $(sql "SELECT round(coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM processed_at - occurred_at)), 0)::numeric, 1) FROM event_inbox WHERE processed_at IS NOT NULL") s"
-echo "figure: storage of an event $(sql "SELECT pg_total_relation_size('event_inbox') / greatest(count(*), 1) FROM event_inbox") bytes, $(sql "SELECT round(pg_total_relation_size('event_inbox')::numeric / greatest(count(*), 1) * 30000000 / 1000000000, 1) FROM event_inbox") GB at the design volume"
-if [ "$mode" != break ]; then
-	met=$(sql "SELECT (SELECT coalesce(sum(value) FILTER (WHERE name = 'served'), 0) = coalesce(sum(value) FILTER (WHERE name = 'accepted'), 0) FROM pipeline_counters)
-	              AND (SELECT coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM processed_at - occurred_at)), 0) < $lag_p95_seconds FROM event_inbox WHERE processed_at IS NOT NULL)
-	              AND (SELECT pg_total_relation_size('event_inbox')::numeric / greatest(count(*), 1) * 30000000 < $storage_gb * 1000000000.0 FROM event_inbox)")
-	[ "$met" = t ] || { echo "an objective read from the database was missed: no loss, a lag under $lag_p95_seconds s at the 95th percentile, storage under $storage_gb GB" >&2; failed=1; }
+figures=$(sql "
+WITH counted AS (
+    SELECT coalesce(sum(value) FILTER (WHERE name = 'served'), 0) AS served,
+           coalesce(sum(value) FILTER (WHERE name = 'accepted'), 0) AS accepted
+      FROM pipeline_counters
+), inbox AS (
+    SELECT count(*) AS events,
+           coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM processed_at - occurred_at))
+                        FILTER (WHERE processed_at IS NOT NULL), 0) AS lag,
+           pg_total_relation_size('event_inbox')::numeric / greatest(count(*), 1) AS bytes
+      FROM event_inbox
+)
+SELECT inbox.events, counted.served - counted.accepted, round(inbox.lag::numeric, 1), trunc(inbox.bytes),
+       round(inbox.bytes * 30000000 / 1000000000, 1),
+       counted.served = counted.accepted AND inbox.lag < $lag_p95_seconds
+           AND inbox.bytes * 30000000 < $storage_gb * 1000000000.0
+  FROM counted, inbox")
+IFS='|' read -r accepted lost lag bytes gigabytes met <<FIGURES
+$figures
+FIGURES
+echo "figure: events accepted $accepted"
+echo "figure: events lost $lost"
+echo "figure: ingestion lag p95 $lag s"
+echo "figure: storage of an event $bytes bytes, $gigabytes GB at the design volume"
+if [ "$mode" != break ] && [ "$met" != t ]; then
+	echo "an objective read from the database was missed: no loss, a lag under $lag_p95_seconds s at the 95th percentile, storage under $storage_gb GB" >&2
+	failed=1
 fi
 
 [ "$failed" = 0 ] || { echo "the $mode run missed an objective" >&2; exit 1; }
