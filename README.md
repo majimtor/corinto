@@ -152,6 +152,8 @@ configuration lives in `.markdownlint-cli2.yaml`.
 a stack of its own with the limits the plan gives each process, and fails
 when an objective is missed. `make bench-smoke` runs it for a few seconds
 with wide thresholds, which is what CI and `make verify` do.
+`make bench-replica` measures the memory the copy of the links takes in
+`redirect`.
 
 ## Licence
 

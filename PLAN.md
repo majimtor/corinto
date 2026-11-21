@@ -571,6 +571,9 @@ what dies after six months.
 - Deactivation: five seconds at the 99th percentile.
 - Storage: at the design volume, raw events over their whole life
   (section 5) take under 10 GB.
+- Links: 100,000. With that many, `redirect` stays under its 256 MB while
+  it reads its whole copy of them again (section 3). This one was set on
+  2026-11-21, after the memory of the replica was measured.
 - Panel queries over the seed: under 200 ms at the 95th percentile.
 - Break test: raise the rate until the first objective fails, and publish
   where and why.
@@ -606,7 +609,10 @@ the run left in it, at the design volume kept for thirty days.
 at 50 requests a second, with every threshold ten times as wide.
 `make bench-break` raises the rate by 300 every thirty seconds until the
 99th percentile of the service time of a ten-second window misses its
-objective.
+objective. `make bench-replica` measures the memory of the replica
+(section 3): what the copy of the links holds, and the most the process
+holds while the whole copy is read again. It fails when the links of the
+objective do not fit.
 
 **Sizing probes.** The measurements taken while planning sized decisions
 and are not published figures. Each is in the context of the record it
