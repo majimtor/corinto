@@ -886,6 +886,7 @@ Each is the maintainer's to take, at the moment named.
 | Event types and retry values of outbound webhooks | Types: conversion reported; link expired, disabled or blocked; a threshold reached. Values: attempts, waits and the thresholds of the circuit breaker | Start with the first two types; values set with the slice | Start of S4 |
 | Method for approximate unique clicks | A daily-salted identifier kept only in memory; not offering the metric | Decided by the privacy analysis | Start of S5 |
 | Form of the public deployment | An edge front in front of an origin that may sleep; a small paid virtual machine | Decided with the limits of ADR 0001 rechecked | When a trigger fires |
+| The move to PostgreSQL 19 | At 19.0, published on 2026-11-19; at its first minor release | At 19.1, in a pull request of its own, with the figures redone (ADR 0020). On 2026-11-21 every test and the load smoke passed against 19.0, and nothing in its migration notes touches what the system uses | When 19.1 is published; PostgreSQL schedules it for 2027-02-11 |
 
 Closed in S0, on 2026-11-14:
 

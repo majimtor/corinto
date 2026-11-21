@@ -73,3 +73,9 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # The major version of PostgreSQL is moved by hand, with the figures
+      # redone: PLAN.md section 20 says how, and section 21 when.
+      - dependency-name: postgres
+        update-types:
+          - version-update:semver-major
