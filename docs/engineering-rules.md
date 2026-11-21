@@ -61,7 +61,8 @@ code with the reason, and the rule is revisited.
 - The schema file of a webhook event validates payloads at runtime and in
   tests alike. An incompatible schema is a new type, never an edit.
 - A change to a contract and the code that implements it travel in the same
-  pull request, with an entry in `contract/CHANGELOG.md`.
+  pull request, with an entry in `contract/CHANGELOG.md`. After a release,
+  the entries under `Unreleased` move under a heading with its version.
 - Breaking changes are what `oasdiff breaking` reports. What they require
   is the versioning of PLAN.md section 7.
 - No endpoint returns a bare string or an ad hoc object on failure: errors
