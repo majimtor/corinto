@@ -923,9 +923,24 @@ components:
         What the estimated human clicks of a breakdown are told apart by.
         `referrer_host` is the host of the page the click came from, as the
         requester said it, with `(none)` for the clicks that named no page.
-        `device` and `browser` are closed lists read from the user-agent.
+        `device` and `browser` are closed lists read from the user-agent:
+        the values of `Device` and of `Browser`.
       type: string
       enum: [referrer_host, device, browser]
+    Device:
+      description: >-
+        The kind of device a click came from, as its user-agent says:
+        `other` when it says none of the rest. The list is closed, and a
+        value can be added to it.
+      type: string
+      enum: [desktop, mobile, tablet, other]
+    Browser:
+      description: >-
+        The family of the browser a click came from, as its user-agent
+        says: `other` when it says none of the rest. The list is closed,
+        and a value can be added to it.
+      type: string
+      enum: [chrome, safari, firefox, edge, opera, samsung_internet, other]
     Metrics:
       description: What every answer about the metrics of a link carries.
       type: object
@@ -1071,6 +1086,10 @@ components:
       required: [value, estimated_human_clicks]
       properties:
         value:
+          description: >-
+            What the clicks have in common: for `referrer_host`, a host or
+            `(none)`; for `device`, a value of `Device`; for `browser`, a
+            value of `Browser`.
           type: string
         estimated_human_clicks:
           type: integer
