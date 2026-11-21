@@ -1,8 +1,9 @@
 #!/bin/sh
 # Compares the contract of the API with the one of the last release, and
 # fails on a breaking change that contract/CHANGELOG.md does not announce
-# (PLAN.md section 7). `make contract` runs it, and names the tool and its
-# version.
+# (PLAN.md section 7). It also fails while the entries that release was
+# made with are still under `Unreleased` there. `make contract` runs it, and
+# names the tool and its version.
 set -eu
 
 : "${OASDIFF:?run this with make contract, which names the tool}"
@@ -23,7 +24,30 @@ if ! last=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null); then
 fi
 
 released=$(mktemp)
-trap 'rm -f "$released"' EXIT
+held=$(mktemp)
+trap 'rm -f "$released" "$held"' EXIT
+
+# The entries a release was made with leave `Unreleased` for a heading with
+# its version, `## X.Y.Z (date)`, in the first change after it
+# (docs/engineering-rules.md). The commit of the release is let off: its tag
+# may be there already, and nothing can have moved yet.
+waiting() { awk '/^## / { under = ($0 == "## Unreleased") } under && /^- /'; }
+if [ "$(git rev-parse "$last^{commit}")" != "$(git rev-parse HEAD)" ]; then
+	git show "$last:contract/CHANGELOG.md" 2>/dev/null | waiting > "$held"
+	if [ -s "$held" ]; then
+		if ! awk -v heading="## ${last#v} " 'index($0, heading) == 1 { found = 1 } END { exit !found }' contract/CHANGELOG.md; then
+			echo "contract/CHANGELOG.md has no heading \`## ${last#v} (date)\`: the entries $last was made with move under it" >&2
+			exit 1
+		fi
+		still=$(waiting < contract/CHANGELOG.md | grep -x -F -f "$held" || true)
+		if [ -n "$still" ]; then
+			echo "entries $last was made with are still under Unreleased in contract/CHANGELOG.md:" >&2
+			printf '%s\n' "$still" >&2
+			exit 1
+		fi
+	fi
+fi
+
 git show "$last:contract/openapi.yaml" > "$released"
 
 # The tool runs through `go run`, which answers 1 whatever the tool
