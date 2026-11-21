@@ -93,6 +93,8 @@ curl --silent $api/v1/ingestion --header "Authorization: Bearer $key"
 - [docs/privacy.md](docs/privacy.md): what a request to a short link
   carries, what is kept of it, where and for how long, and what a
   deployment has to add.
+- [docs/known-issues.md](docs/known-issues.md): what is known not to work
+  or to work within limits, and the date of each clean-machine drill.
 
 ## Run it
 

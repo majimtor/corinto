@@ -33,6 +33,10 @@ code with the reason, and the rule is revisited.
   on `main`, signed by GitHub. For that reason the rules of `main` do not
   require signed commits on pull request branches; every commit on `main`
   is signed all the same.
+- The release pull request is merged by the maintainer, never
+  automatically, with its title as the subject and one line as the body.
+  The tool's own description stays in the pull request, and the release
+  notes are in `CHANGELOG.md`.
 
 ## Branches and pull requests
 
