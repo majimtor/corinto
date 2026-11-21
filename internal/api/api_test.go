@@ -18,6 +18,7 @@ import (
 
 	"github.com/majimtor/corinto/contract"
 	"github.com/majimtor/corinto/contract/contracttest"
+	"github.com/majimtor/corinto/internal/classify"
 	"github.com/majimtor/corinto/internal/ingest"
 	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/rollup"
@@ -446,6 +447,42 @@ func TestTheCodesAreTheOnesOfTheContract(t *testing.T) {
 
 // The reasons are written twice, in the contract and here. This keeps the
 // two lists equal.
+// A breakdown by device or by browser names the values the classifier
+// gives, and the contract lists them: a value that one has and the other
+// does not is a value a client was not told about.
+func TestTheValuesOfABreakdownAreTheOnesOfTheContract(t *testing.T) {
+	document, err := contract.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := func(schema string) []string {
+		t.Helper()
+		found := document.Components.Schemas[schema]
+		if found == nil {
+			t.Fatalf("the contract has no schema %s", schema)
+		}
+		var values []string
+		for _, value := range found.Value.Enum {
+			text, _ := value.(string)
+			values = append(values, text)
+		}
+		return values
+	}
+	var devices, browsers []string
+	for _, device := range classify.Devices() {
+		devices = append(devices, string(device))
+	}
+	for _, browser := range classify.Browsers() {
+		browsers = append(browsers, string(browser))
+	}
+	if got := listed("Device"); !slices.Equal(got, devices) {
+		t.Errorf("the contract lists the devices %v and the classifier gives %v", got, devices)
+	}
+	if got := listed("Browser"); !slices.Equal(got, browsers) {
+		t.Errorf("the contract lists the browsers %v and the classifier gives %v", got, browsers)
+	}
+}
+
 func TestTheReasonsAreTheOnesOfTheContract(t *testing.T) {
 	document, err := contract.Load(t.Context())
 	if err != nil {
