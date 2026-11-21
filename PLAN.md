@@ -606,7 +606,9 @@ the run left in it, at the design volume kept for thirty days.
 at 50 requests a second, with every threshold ten times as wide.
 `make bench-break` raises the rate by 300 every thirty seconds until the
 99th percentile of the service time of a ten-second window misses its
-objective.
+objective. `make bench-replica` measures the memory of the replica
+(section 3): what the copy of the links holds, and the most the process
+holds while the whole copy is read again.
 
 **Sizing probes.** The measurements taken while planning sized decisions
 and are not published figures. Each is in the context of the record it

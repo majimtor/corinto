@@ -25,7 +25,7 @@ REDIRECT_HEALTH_URL := http://127.0.0.1:8083
 WORKER_HEALTH_URL := http://127.0.0.1:8084
 
 .PHONY: up down seed test integration verify lint contract secrets docs image image-go-version \
-	release-image bench bench-smoke bench-break
+	release-image bench bench-smoke bench-break bench-replica
 
 # Starts the whole system on this machine and waits until it reports ready.
 # The first start seeds two demo workspaces and prints a key for each, this
@@ -169,3 +169,11 @@ bench-smoke: deploy/.env
 # where. Run by hand, for the figure the plan asks for.
 bench-break: deploy/.env
 	K6_IMAGE=$(K6_IMAGE) bench/run.sh break
+
+# Measures, five times, the memory the copy of the links takes in a
+# process: what it holds, and the most the process holds from the system
+# while the whole copy is read again. It needs Go and nothing else, and it
+# is what the figures of the replica in docs/benchmarks.md are reproduced
+# with.
+bench-replica:
+	go test -run '^$$' -bench Memory -benchtime 1x -count 5 ./internal/resolve/
