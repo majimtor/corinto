@@ -1,0 +1,117 @@
+{{define "title"}}{{t "link.page_title" "name" .Name "days" .Days}}{{end}}
+
+{{define "content" -}}
+<h1>{{.Name}}</h1>
+{{if .Demo}}<p class="notice">{{t "link.synthetic"}}</p>{{end}}
+<dl class="facts">
+<div><dt>{{t "link.short"}}</dt><dd class="address">{{.Link.Domain}}/{{.Link.Identifier}}</dd></div>
+<div><dt>{{t "link.destination"}}</dt><dd class="address">{{.Link.Resolved}}</dd></div>
+<div><dt>{{t "link.state"}}</dt><dd>{{t .StateKey}}</dd></div>
+</dl>
+
+<section aria-labelledby="period">
+<h2 id="period">{{t "link.period" "days" .Days "first" (date .First) "last" (date .Last)}}</h2>
+<p>{{t "link.through" "moment" (moment .Through)}}</p>
+{{if eq (len .Versions) 1 -}}
+<p>{{t "link.rules" "version" (index .Versions 0).Version}}</p>
+{{- else if .Versions -}}
+<p>{{t "link.rules_changed"}}</p>
+<ul>
+{{range .Versions}}<li>{{t "link.rules_version" "version" .Version "date" (date .FirstHour)}}</li>
+{{end}}</ul>
+{{- end}}
+
+<dl class="figures">
+<div class="figure">
+<dt>{{t "metric.requests"}}</dt>
+<dd class="value">{{number .Total.Requests}}</dd>
+<dd class="definition">{{t "metric.requests.definition"}}</dd>
+</div>
+<div class="figure">
+<dt>{{t "metric.estimated_human_clicks"}}</dt>
+<dd class="value">{{number .Total.EstimatedHumanClicks}}</dd>
+<dd class="definition">{{t "metric.estimated_human_clicks.definition"}}</dd>
+</div>
+<div class="figure">
+<dt>{{t "metric.inactive_requests"}}</dt>
+<dd class="value">{{number .Total.InactiveRequests}}</dd>
+<dd class="definition">{{t "metric.inactive_requests.definition"}}</dd>
+</div>
+</dl>
+</section>
+
+<section aria-labelledby="series-title">
+<h2 id="series-title">{{t "series.title"}}</h2>
+<p id="series-summary">
+{{- if .Total.Requests -}}
+{{t "series.summary" "days" .Days "requests" (plural "count.requests" .Total.Requests) "clicks" (plural "count.clicks" .Total.EstimatedHumanClicks) "date" (date .Peak.Start)}}
+{{- else -}}
+{{t "series.empty" "days" .Days}}
+{{- end -}}
+</p>
+<ul class="legend">
+<li><svg class="swatch" viewBox="0 0 32 12" width="32" height="12" aria-hidden="true" focusable="false"><line class="line line-1" x1="0" y1="6" x2="32" y2="6"/><circle class="marker marker-1" cx="16" cy="6" r="3.5"/></svg> {{t "metric.requests"}}</li>
+<li><svg class="swatch" viewBox="0 0 32 12" width="32" height="12" aria-hidden="true" focusable="false"><line class="line line-2" x1="0" y1="6" x2="32" y2="6"/><rect class="marker marker-2" x="16" y="6" width="7" height="7" transform="translate(-3.5 -3.5)"/></svg> {{t "metric.estimated_human_clicks"}}</li>
+</ul>
+<div class="scroll" role="group" aria-labelledby="series-title" tabindex="0">
+<svg class="chart" viewBox="0 0 {{.Chart.Width}} {{.Chart.Height}}" width="{{.Chart.Width}}" height="{{.Chart.Height}}" role="img" aria-labelledby="series-title series-summary">
+{{range .Chart.Ticks -}}
+<line class="grid" x1="{{$.Chart.Left}}" x2="{{$.Chart.Right}}" y1="{{.Y}}" y2="{{.Y}}"/>
+<text class="tick" x="{{$.Chart.ValueLabelsX}}" y="{{.Y}}" dy="0.32em" text-anchor="end">{{number .Value}}</text>
+{{end -}}
+{{range .DayLabels -}}
+<text class="tick" x="{{.X}}" y="{{$.Chart.StepLabelsY}}" text-anchor="middle">{{day .Day}}</text>
+{{end -}}
+{{range .RuleMarks -}}
+<line class="mark" x1="{{.X}}" x2="{{.X}}" y1="{{$.Chart.Top}}" y2="{{$.Chart.Bottom}}"/>
+<text class="tick" x="{{.LabelX}}" y="{{$.Chart.Top}}" dy="0.9em">{{t "series.rules_mark" "version" .Version}}</text>
+{{end -}}
+{{with index .Chart.Lines 0 -}}
+<polyline class="line line-1" points="{{.Points}}"/>
+{{range .Markers}}<circle class="marker marker-1" cx="{{.X}}" cy="{{.Y}}" r="3.5"/>
+{{end -}}
+{{end -}}
+{{with index .Chart.Lines 1 -}}
+<polyline class="line line-2" points="{{.Points}}"/>
+{{range .Markers}}<rect class="marker marker-2" x="{{.X}}" y="{{.Y}}" width="7" height="7" transform="translate(-3.5 -3.5)"/>
+{{end -}}
+{{end -}}
+</svg>
+</div>
+<table>
+<caption>{{t "series.caption"}}</caption>
+<thead>
+<tr><th scope="col">{{t "series.day"}}</th><th scope="col" class="count">{{t "metric.requests"}}</th><th scope="col" class="count">{{t "metric.estimated_human_clicks"}}</th><th scope="col" class="count">{{t "metric.inactive_requests"}}</th></tr>
+</thead>
+<tbody>
+{{range .Series -}}
+<tr><th scope="row" class="day"><time datetime="{{isoday .Start}}">{{date .Start}}</time></th><td class="count">{{number .Requests}}</td><td class="count">{{number .EstimatedHumanClicks}}</td><td class="count">{{number .InactiveRequests}}</td></tr>
+{{end -}}
+</tbody>
+</table>
+</section>
+
+<section aria-labelledby="referrers-title">
+<h2 id="referrers-title">{{t "referrers.title"}}</h2>
+{{if .Referrers -}}
+{{$top := index .Referrers 0 -}}
+{{$site := $top.Site -}}
+{{if $top.None}}{{$site = t "referrers.none"}}{{else if $top.Others}}{{$site = t "referrers.other"}}{{end -}}
+<p>{{t "referrers.summary" "site" $site "clicks" (plural "count.clicks" $top.Clicks) "total" .ReferrerClicks}}</p>
+<table>
+<caption>{{t "referrers.caption"}}</caption>
+<thead>
+<tr><th scope="col">{{t "referrers.site"}}</th><th scope="col" class="count">{{t "metric.estimated_human_clicks"}}</th><th scope="col">{{t "referrers.share"}}</th></tr>
+</thead>
+<tbody>
+{{range .Referrers -}}
+<tr><th scope="row" class="address">{{if .None}}{{t "referrers.none"}}{{else if .Others}}{{t "referrers.other"}}{{else}}{{.Site}}{{end}}</th><td class="count">{{number .Clicks}}</td><td class="share"><svg class="bar" width="120" height="10" aria-hidden="true" focusable="false"><rect class="bar-fill" width="{{.PercentOfMost}}%" height="100%" rx="2"/></svg> {{percent .Clicks $.ReferrerClicks}}</td></tr>
+{{end -}}
+</tbody>
+</table>
+{{- else -}}
+<p>{{t "referrers.empty" "days" .Days}}</p>
+{{- end}}
+<p class="definition">{{t "referrers.definition"}}</p>
+</section>
+{{- end}}

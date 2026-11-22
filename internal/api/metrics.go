@@ -87,7 +87,9 @@ func period(w http.ResponseWriter, r *http.Request, by rollup.Granularity) (roll
 //
 // How far the events are processed is read before any figure, here and
 // never after: the figures read later hold at least what that moment says
-// (docs/delivery-semantics.md, statement 7).
+// (docs/delivery-semantics.md, statement 7). The page of a link in the
+// panel reads in the same order (internal/panel, linkPage), and the two
+// share no code: what each does with a failure differs.
 func (m metrics) about(w http.ResponseWriter, r *http.Request, asked rollup.Period) (shownMetrics, bool) {
 	ctx := r.Context()
 	id, demo, err := m.links.InWorkspace(ctx, principalOf(ctx).WorkspaceID, r.PathValue("id"))

@@ -1,0 +1,24 @@
+{{define "layout" -}}
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{template "title" .}} · Corinto</title>
+<link rel="stylesheet" href="{{.Stylesheet}}">
+</head>
+<body>
+<a class="skip" href="#content">{{t "layout.skip"}}</a>
+<header class="top">
+<p class="brand">Corinto</p>
+<p class="language"><a href="{{.OtherPath}}" hreflang="{{.Other}}" lang="{{.Other}}">{{.OtherName}}</a></p>
+</header>
+<main id="content" tabindex="-1">
+{{template "content" .}}
+</main>
+<footer class="foot">
+<p>{{t "layout.utc"}}</p>
+</footer>
+</body>
+</html>
+{{end}}
