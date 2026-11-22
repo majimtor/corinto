@@ -13,31 +13,31 @@ its conditions.
 
 | | |
 | --- | --- |
-| Date | 2026-11-20 |
+| Date | 2026-11-22 |
 | Machine | MacBook Pro (MacBookPro16,2): Intel Core i5-1038NG7, 4 cores and 8 threads at 2.0 GHz, 16 GB of memory, macOS 26.1 |
 | Containers | Docker Desktop 4.100.0, engine 29.9.3, with 8 CPUs and 8 GB for all the containers together |
 | Limits | `redirect`: 1 CPU and 256 MB. PostgreSQL 18.7: 1 CPU and 1 GB. `api`, `worker` and the load generator: none |
 | Load | k6 2.4.0, at a constant arrival rate: 300 requests a second for 10 minutes, from 1,000 simulated client addresses, with the rate limit of the redirect in the path |
-| Other load | None that anybody started. A browser with idle tabs and a terminal were open, and the load generator ran on the same machine as the system |
-| Commands | `make bench`, five times, one after another; then `make bench-break`, once |
-| Commit | `bb16576` |
+| Other load | None that anybody started. A browser with idle tabs and a terminal were open, and the load generator ran on the same machine as the system. The machine was on mains power and was kept awake |
+| Commands | `make bench`, five times, one after another |
+| Commit | `4c12b37` |
 
 The figures are of this machine. They say how the design behaves under
 the limits above, and little about any other machine.
 
 ## The burst
 
-All five runs met every objective. In each, the generator sent every one
-of its 180,001 requests, and every answer was the one the contract of the
-redirect gives.
+All five runs met every objective. In each, the generator sent every
+request it was due, 180,001 of them and 180,000 in one run, and every
+answer was the one the contract of the redirect gives.
 
 | Objective | Median | Smallest | Largest |
 | --- | --- | --- | --- |
 | Service time of the redirect under 10 ms at the 99th percentile | up to 0.25 ms | up to 0.25 ms | up to 0.25 ms |
 | No counted loss | 0 events | 0 | 0 |
-| Ingestion lag under 30 s at the 95th percentile | 1.9 s | 1.3 s | 2.4 s |
+| Ingestion lag under 30 s at the 95th percentile | 2.1 s | 1.8 s | 2.6 s |
 | Deactivation within 5 s at the 99th percentile | 2.02 s | 1.92 s | 2.03 s |
-| Raw events under 10 GB at the design volume | 9.5 GB | 9.4 GB | 9.7 GB |
+| Raw events under 10 GB at the design volume | 9.2 GB | 9.0 GB | 9.5 GB |
 
 **Service time.** It is the time the `redirect` process measures of
 itself, from the moment it takes a request to the moment it has nothing
@@ -54,10 +54,10 @@ at most 0.25 ms. The five runs fell in the same buckets.
 | 99.9th | up to 0.5 ms |
 
 No request took longer than the last bucket holds, one second. Each run
-measured about 183,100 requests: the 180,001 of the burst and the ones
-that watched a link being disabled.
+measured about 183,100 requests: the ones of the burst and the ones that
+watched a link being disabled.
 
-**Loss.** Each run served between 181,234 and 181,403 responses that owed
+**Loss.** Each run served between 181,252 and 181,399 responses that owed
 an event, and every event reached the inbox.
 
 **Ingestion lag.** From the access of an event, which is kept to the
@@ -67,17 +67,28 @@ adds up to a second to what is measured.
 **Deactivation.** A link was disabled a hundred times in each run, while
 the burst went on. The time is from the answer of the API to the first
 `404` of the redirect, which asks for changes every two seconds: the
-median of the five medians was 0.81 s, and the largest time of the five
-hundred was 2.03 s.
+median of the five medians was 0.86 s, and the largest time of the five
+hundred was 2.04 s.
 
 **Storage.** What an event took in the inbox, with its indexes, when a run
-ended: 316 bytes at the median, between 314 and 323. The figure of the
+ended: 306 bytes at the median, between 301 and 317. The figure of the
 table is that size for thirty million events, a million a day kept for
 thirty days. It is the objective with the least room. It also depends on
 when it is read: an event is written once and marked as processed once,
 the second write leaves the first behind, and the space comes back when
 PostgreSQL has cleaned the table. Twenty seconds after a start, before any
 cleaning, a short run measured 490 bytes an event.
+
+**The set before this one.** Five runs on 2026-11-20, at commit `bb16576`,
+met every objective too, with the same service times and the same
+deactivation. Their ingestion lag was 1.9 s at the median, between 1.3 and
+2.4, and an event took 316 bytes, between 314 and 323: 9.5 GB at the
+design volume, between 9.4 and 9.7. Between the two commits the code of
+the processes changed only in the seed, and the script that reads the
+figures now waits until the counts stop changing. What made an event
+smaller in this set was not traced. So the smallest and the largest of
+five runs are not bounds: a run on another day can fall outside them, as
+four of these five do for the storage of that set.
 
 ### What the load generator measured
 
@@ -87,17 +98,18 @@ is about, and it is here so that the two can be told apart.
 
 | Percentile | Median | Smallest | Largest |
 | --- | --- | --- | --- |
-| 50th | 0.73 ms | 0.70 ms | 0.76 ms |
-| 95th | 1.00 ms | 0.99 ms | 1.10 ms |
-| 99th | 1.27 ms | 1.23 ms | 1.47 ms |
-| 99.9th | 5.32 ms | 4.82 ms | 11.24 ms |
-| Slowest request | 92.8 ms | 82.5 ms | 280.8 ms |
+| 50th | 0.80 ms | 0.73 ms | 0.82 ms |
+| 95th | 1.14 ms | 1.07 ms | 1.19 ms |
+| 99th | 1.59 ms | 1.29 ms | 2.05 ms |
+| 99.9th | 8.22 ms | 4.96 ms | 24.72 ms |
+| Slowest request | 130.2 ms | 48.8 ms | 185.3 ms |
 
 ## The break test
 
 The plan asks for the rate to be raised until the first objective fails,
 and for where and why. On this machine none failed before the load
-generator did.
+generator did. The test was run once, on 2026-11-20 at commit `bb16576`,
+after the five runs of that day.
 
 `make bench-break` raised the rate by 300 requests a second every thirty
 seconds, from 300 to 6,000, and read the service time of the server every
@@ -191,8 +203,9 @@ make bench-replica  # the memory of the replica, five times in half a minute
 The first two need Docker and `make`. Each run starts a stack of its own,
 seeds it, and removes it with its data when it ends. A run fails when an
 objective is missed, and prints each figure on a line that begins with
-`figure:`. The third needs Go and `make`, and about 1.2 GB of memory for
-its largest size. It prints a line for each size and run: `held-MiB` and
-`held-B/link` are what the copy holds, and `most-MiB` the most the process
-held. It fails when the links the plan expects do not fit in the limit of
-`redirect`.
+`figure:`. A laptop has to stay awake while a run lasts: if it sleeps, the
+generator cannot send its load and the run fails. The third needs Go and
+`make`, and about 1.2 GB of memory for its largest size. It prints a line
+for each size and run: `held-MiB` and `held-B/link` are what the copy
+holds, and `most-MiB` the most the process held. It fails when the links
+the plan expects do not fit in the limit of `redirect`.
