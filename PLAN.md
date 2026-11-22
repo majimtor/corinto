@@ -747,16 +747,25 @@ manual accessibility review and tests in browsers, which neither
 measurement resembles. They are likely to be high all the same, and S2 is
 estimated again at the check that opens it.
 
+Revision of 2026-11-22, at the check that opens S2 (ADR 0014). The first
+real screen, the detail of a link with its series, a breakdown and their
+tables, came out in both languages and clean under axe in about half an
+hour of the eight the check allowed: the panel stays in Go templates. S2 is
+estimated again at the ratio S1 measured, 0.43 of its estimate: 12 / 16 /
+25 hours instead of 27 / 38 / 58. The check measured one screen. The slice
+also brings sessions, the synthetic history of the seed, tests in three
+browser engines and a manual review, which it did not measure.
+
 | Slice | Hours | Weeks at 10 h | Weeks at 5 h |
 | --- | --- | --- | --- |
 | S0 Foundations, closed | 8, against an estimate of 14 / 20 / 30 | 1 | 2 |
 | S1 Redirect and count, closed | 32, against an estimate of 52 / 74 / 110 | 3 | 6 |
-| S2 Panel and metrics | 27 / 38 / 58 | 3 / 4 / 6 | 5 / 8 / 12 |
+| S2 Panel and metrics | 12 / 16 / 25 | 1 / 2 / 3 | 2 / 3 / 5 |
 | S3 Inbound webhooks and launch | 14 / 22 / 34 | 1 / 2 / 3 | 3 / 4 / 7 |
-| **Up to launch** | **81 / 100 / 132** | **8 / 10 / 13** | **16 / 20 / 26** |
+| **Up to launch** | **66 / 78 / 99** | **7 / 8 / 10** | **13 / 16 / 20** |
 | S4 Outbound webhooks | 18 / 25 / 38 | 2 / 3 / 4 | 4 / 5 / 8 |
 | S5 Approximate unique clicks | 5 / 8 / 14 | 1 / 1 / 1 | 1 / 2 / 3 |
-| **Whole vision** | **104 / 133 / 184** | **10 / 13 / 18** | **21 / 27 / 37** |
+| **Whole vision** | **89 / 111 / 151** | **9 / 11 / 15** | **18 / 22 / 30** |
 | Public deployment, by trigger | 10 / 16 / 28 | 1 / 2 / 3 | 2 / 3 / 6 |
 
 S0 to S5 are the first stretch. The slices by trigger start when their
@@ -788,8 +797,8 @@ break test move to S2; redirect, ingestion, semantics and one published
 figure stay. Closed on 2026-11-20 in about 32 real hours, with the three
 breakdowns and the break test in it.
 
-**S2 Panel and metrics.** First, the bounded check of ADR 0014; if it
-fails, this slice is estimated again. Then sessions and the demo entry; the
+**S2 Panel and metrics.** First, the bounded check of ADR 0014, which came
+out on 2026-11-22. Then sessions and the demo entry; the
 panel with links, series, breakdowns, keys and the status page; the
 synthetic history of the seed; both catalogues; the manual accessibility
 review; the end-to-end path and the screenshots it generates. Done when the
