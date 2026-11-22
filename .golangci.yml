@@ -15,6 +15,7 @@ linters:
     - bodyclose # a response body left open leaks its connection
     - contextcheck # a call that drops the caller's context cannot be cancelled
     - errorlint # errors compared with == stop matching once they are wrapped
+    - forbidigo # markup that html/template is told not to escape
     - gocritic # mistakes that vet does not look for, such as a defer skipped by os.Exit
     - gosec # servers without timeouts, weak randomness, unbounded reads
     - misspell # typos in comments and messages a reader sees
@@ -24,9 +25,22 @@ linters:
     - unconvert # a conversion that changes nothing hides the one that matters
     - unparam # a parameter no caller varies is a constant in disguise
   settings:
+    forbidigo:
+      forbid:
+        # The types that html/template takes as already safe and does not
+        # escape. Text reaches a page through the escaping of the templates;
+        # only the chart package of the panel may write markup itself, from
+        # numbers (docs/engineering-rules.md, "The panel").
+        - pattern: ^template\.(CSS|HTML|HTMLAttr|JS|JSStr|Srcset|URL)$
+          msg: html/template does not escape this type, and only the chart package of the panel may use it
     nolintlint:
       require-explanation: true
       require-specific: true
+  exclusions:
+    rules:
+      - path: ^internal/panel/chart/
+        linters:
+          - forbidigo
 
 formatters:
   enable:
