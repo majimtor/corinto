@@ -304,8 +304,8 @@ func parseBlockWorkspace(args []string, _ *environment) (action, error) {
 	}
 
 	return func(ctx context.Context, pool *pgxpool.Pool) (outcome, error) {
-		// One transaction: a workspace is never left blocked with keys that
-		// still open it, nor with links that still redirect.
+		// One transaction: a workspace is never left blocked with keys or
+		// sessions that still open it, nor with links that still redirect.
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			return outcome{}, fmt.Errorf("begin the block of a workspace: %w", err)
@@ -320,17 +320,22 @@ func parseBlockWorkspace(args []string, _ *environment) (action, error) {
 		if err != nil {
 			return outcome{}, fmt.Errorf("block the workspace: %w", err)
 		}
+		sessions, err := auth.CloseSessions(ctx, tx, *id)
+		if err != nil {
+			return outcome{}, fmt.Errorf("block the workspace: %w", err)
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return outcome{}, fmt.Errorf("commit the block of a workspace: %w", err)
 		}
 		return outcome{
 			printed: struct {
-				ID           string `json:"id"`
-				Name         string `json:"name"`
-				LinksBlocked int    `json:"links_blocked"`
-				KeysRevoked  int    `json:"keys_revoked"`
-			}{*id, name, links, keys},
-			logged: []any{"workspace", *id, "links", links, "keys", keys},
+				ID             string `json:"id"`
+				Name           string `json:"name"`
+				LinksBlocked   int    `json:"links_blocked"`
+				KeysRevoked    int    `json:"keys_revoked"`
+				SessionsClosed int    `json:"sessions_closed"`
+			}{*id, name, links, keys, sessions},
+			logged: []any{"workspace", *id, "links", links, "keys", keys, "sessions", sessions},
 		}, nil
 	}, nil
 }

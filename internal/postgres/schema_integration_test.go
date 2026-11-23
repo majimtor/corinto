@@ -224,3 +224,45 @@ func TestTheSchemaKeepsTheRulesOfAKey(t *testing.T) {
 		})
 	}
 }
+
+func TestTheSchemaKeepsTheRulesOfASession(t *testing.T) {
+	pool := migrated(t)
+	ctx := t.Context()
+
+	var workspace string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO workspaces (name, max_links, max_keys) VALUES ('Acme', 1000, 10) RETURNING id`).Scan(&workspace); err != nil {
+		t.Fatal(err)
+	}
+	// The hash of no token: a byte repeated 32 times. A session opened an
+	// hour ago, which ends so long after it was opened and was last used
+	// so long after.
+	const insert = `INSERT INTO sessions (workspace_id, token_hash, created_at, expires_at, last_seen_at)
+		VALUES ($1, decode(repeat($2, $3), 'hex'), now() - interval '1 hour',
+		        now() - interval '1 hour' + make_interval(secs => $4), now() - interval '1 hour' + make_interval(secs => $5))`
+	if _, err := pool.Exec(ctx, insert, workspace, "00", 32, 3600.0, 60.0); err != nil {
+		t.Fatalf("a session within the rules: %v", err)
+	}
+
+	cases := []struct {
+		name          string
+		workspace     string
+		hashByte      string
+		hashBytes     int
+		lasts, seenAt float64
+		want          string
+	}{
+		{"the token of another session", workspace, "00", 32, 3600, 60, uniqueViolation},
+		{"a hash that is not 32 bytes", workspace, "01", 20, 3600, 60, checkViolation},
+		{"an end that is not after the beginning", workspace, "02", 32, 0, 0, checkViolation},
+		{"a last request before the beginning", workspace, "03", 32, 3600, -1, checkViolation},
+		{"a workspace that does not exist", "00000000-0000-7000-8000-000000000000", "04", 32, 3600, 60, foreignKeyViolation},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if code := violation(t, pool, insert, c.workspace, c.hashByte, c.hashBytes, c.lasts, c.seenAt); code != c.want {
+				t.Errorf("code = %s, want %s", code, c.want)
+			}
+		})
+	}
+}

@@ -294,9 +294,23 @@ func TestTheOperatorBlocksALinkByItsShortIdentifier(t *testing.T) {
 	}
 }
 
-func TestTheOperatorBlocksAWorkspaceWithItsLinksAndItsKeys(t *testing.T) {
+func TestTheOperatorBlocksAWorkspaceWithItsLinksItsKeysAndItsSessions(t *testing.T) {
 	env, pool := migrated(t)
 	keys := auth.NewKeys(pool, rand.Reader)
+	sessions := auth.NewSessions(pool, rand.Reader)
+	// A session opens in a demo workspace alone, and the operator creates
+	// none: the seed does.
+	enter := func(workspaceID string) string {
+		t.Helper()
+		if _, err := pool.Exec(t.Context(), `UPDATE workspaces SET demo = true WHERE id = $1::uuid`, workspaceID); err != nil {
+			t.Fatal(err)
+		}
+		_, token, err := sessions.Open(t.Context(), workspaceID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return token
+	}
 	issueKey := func(workspaceID string) string {
 		t.Helper()
 		key, _ := printed(t, env, "issue-key", "--workspace", workspaceID, "--name", "Deploy pipeline",
@@ -308,10 +322,11 @@ func TestTheOperatorBlocksAWorkspaceWithItsLinksAndItsKeys(t *testing.T) {
 	otherID, _ := printed(t, env, "create-workspace", "--name", "Globex")["id"].(string)
 	links := []link.Link{newLink(t, pool, workspaceID), newLink(t, pool, workspaceID)}
 	credentials := []string{issueKey(workspaceID), issueKey(workspaceID)}
-	otherLink, otherCredential := newLink(t, pool, otherID), issueKey(otherID)
+	tokens := []string{enter(workspaceID), enter(workspaceID), enter(workspaceID)}
+	otherLink, otherCredential, otherToken := newLink(t, pool, otherID), issueKey(otherID), enter(otherID)
 
 	blocked := printed(t, env, "block-workspace", "--workspace", workspaceID)
-	want := map[string]any{"id": workspaceID, "name": "Acme", "links_blocked": 2, "keys_revoked": 2}
+	want := map[string]any{"id": workspaceID, "name": "Acme", "links_blocked": 2, "keys_revoked": 2, "sessions_closed": 3}
 	if !equalJSON(blocked, want) {
 		t.Errorf("block-workspace printed %v, want %v", blocked, want)
 	}
@@ -339,15 +354,26 @@ func TestTheOperatorBlocksAWorkspaceWithItsLinksAndItsKeys(t *testing.T) {
 	if _, err := keys.Authenticate(t.Context(), otherCredential); err != nil {
 		t.Errorf("the key of another workspace gives %v, want none", err)
 	}
+	for _, token := range tokens {
+		if _, err := sessions.Authenticate(t.Context(), token); !errors.Is(err, auth.ErrInvalidSession) {
+			t.Errorf("a session of the workspace gives %v, want %v", err, auth.ErrInvalidSession)
+		}
+	}
+	if _, err := sessions.Authenticate(t.Context(), otherToken); err != nil {
+		t.Errorf("the session of another workspace gives %v, want none", err)
+	}
 
-	// Nothing more can be issued in it, and blocking it again is not an
-	// error.
+	// Nothing more can be issued in it, nobody enters it, and blocking it
+	// again is not an error.
 	code, stdout, log := operate(t, env, "issue-key", "--workspace", workspaceID, "--name", "n", "--scope", "links:read")
 	if code != exitFailure || stdout != "" || !strings.Contains(log, "workspace is blocked") {
 		t.Errorf("issue-key in the blocked workspace: exit code = %d and %q printed; log: %s", code, stdout, log)
 	}
+	if _, _, err := sessions.Open(t.Context(), workspaceID); !errors.Is(err, link.ErrWorkspaceBlocked) {
+		t.Errorf("a session in the blocked workspace: %v, want %v", err, link.ErrWorkspaceBlocked)
+	}
 	again := printed(t, env, "block-workspace", "--workspace", workspaceID)
-	if !equalJSON(again, map[string]any{"id": workspaceID, "name": "Acme", "links_blocked": 0, "keys_revoked": 0}) {
+	if !equalJSON(again, map[string]any{"id": workspaceID, "name": "Acme", "links_blocked": 0, "keys_revoked": 0, "sessions_closed": 0}) {
 		t.Errorf("blocking again printed %v", again)
 	}
 

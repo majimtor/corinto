@@ -151,6 +151,11 @@ func forget(ctx context.Context, pool *pgxpool.Pool) error {
 		if err := auth.DeleteDemoKeys(ctx, tx, id); err != nil {
 			return err
 		}
+		// Whoever was in the panel of the workspace is out of it: the
+		// workspace they entered is about to be gone.
+		if _, err := auth.CloseSessions(ctx, tx, id); err != nil {
+			return err
+		}
 		if err := link.DeleteDemoWorkspace(ctx, tx, id); err != nil {
 			return err
 		}

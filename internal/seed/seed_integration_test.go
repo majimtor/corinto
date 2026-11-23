@@ -69,7 +69,7 @@ func (s *stage) number(t *testing.T, query string, arguments ...any) int64 {
 
 // The tables a workspace has rows in, in the order in which a count of
 // them is written down.
-var tables = []string{"links", "api_keys", "event_inbox", "link_hourly", "link_daily_dimension", "pipeline_counters"}
+var tables = []string{"links", "api_keys", "event_inbox", "link_hourly", "link_daily_dimension", "pipeline_counters", "sessions"}
 
 // held returns how many rows a workspace has in each table.
 func (s *stage) held(t *testing.T, workspaceID string) []int64 {
@@ -206,7 +206,8 @@ func TestTheSeedRecreatesTheDemoWorkspacesAndTouchesNoOther(t *testing.T) {
 
 	first := s.run(t, seedDay)
 	// What somebody did in a demo workspace after the seed: traffic on one
-	// of its links, a link of their own and another key.
+	// of its links, a link of their own, another key and a session in its
+	// panel.
 	var seededLink link.Link
 	listed, _, err := s.links.List(t.Context(), first[0].ID, "", 50)
 	if err != nil || len(listed) == 0 {
@@ -220,13 +221,18 @@ func TestTheSeedRecreatesTheDemoWorkspacesAndTouchesNoOther(t *testing.T) {
 	if _, _, err := s.keys.Issue(t.Context(), first[0].ID, auth.Draft{Name: "Mine", Scopes: []auth.Scope{auth.ScopeLinksRead}}); err != nil {
 		t.Fatal(err)
 	}
+	sessions := auth.NewSessions(s.pool, rand.Reader)
+	_, inThePanel, err := sessions.Open(t.Context(), first[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// 11 links, two keys, three events, an hour, three values of the
-	// breakdowns and two counts: accepted and processed.
-	if before, want := s.held(t, first[0].ID), []int64{11, 2, 3, 1, 3, 2}; !slices.Equal(before, want) {
+	// breakdowns, two counts, accepted and processed, and a session.
+	if before, want := s.held(t, first[0].ID), []int64{11, 2, 3, 1, 3, 2, 1}; !slices.Equal(before, want) {
 		t.Fatalf("before the second seed the demo workspace holds %v in %v, want %v", before, tables, want)
 	}
 	theirs := s.held(t, ordinary.ID)
-	if want := []int64{1, 1, 3, 1, 3, 2}; !slices.Equal(theirs, want) {
+	if want := []int64{1, 1, 3, 1, 3, 2, 0}; !slices.Equal(theirs, want) {
 		t.Fatalf("the workspace that is not a demo holds %v in %v, want %v", theirs, tables, want)
 	}
 	versions := s.number(t, `SELECT count(*) FROM rule_versions`)
@@ -241,7 +247,7 @@ func TestTheSeedRecreatesTheDemoWorkspacesAndTouchesNoOther(t *testing.T) {
 		t.Errorf("there are %d workspaces and %d links in the demos, want 3 and 16", workspaces, demoLinks)
 	}
 	// Nothing is left of the old ones: no row of theirs in any table, and
-	// their keys open nothing.
+	// their keys and their sessions open nothing.
 	for _, old := range first {
 		if rows := s.held(t, old.ID); !slices.Equal(rows, make([]int64, len(tables))) || s.number(t, `SELECT count(*) FROM workspaces WHERE id = $1::uuid`, old.ID) != 0 {
 			t.Errorf("the old demo workspace %s still holds %v in %v", old.Name, rows, tables)
@@ -250,9 +256,12 @@ func TestTheSeedRecreatesTheDemoWorkspacesAndTouchesNoOther(t *testing.T) {
 			t.Errorf("the old key of %s: %v, want %v", old.Name, err, auth.ErrInvalidKey)
 		}
 	}
+	if _, err := sessions.Authenticate(t.Context(), inThePanel); !errors.Is(err, auth.ErrInvalidSession) {
+		t.Errorf("the session in the panel of %s: %v, want %v", first[0].Name, err, auth.ErrInvalidSession)
+	}
 	// The new ones hold their links and their key, and nothing of what
 	// happened in the old ones.
-	if rows, want := s.held(t, second[0].ID), []int64{10, 1, 0, 0, 0, 0}; !slices.Equal(rows, want) {
+	if rows, want := s.held(t, second[0].ID), []int64{10, 1, 0, 0, 0, 0, 0}; !slices.Equal(rows, want) {
 		t.Errorf("the new demo workspace holds %v in %v, want %v", rows, tables, want)
 	}
 	for _, workspace := range second {
