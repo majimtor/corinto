@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/majimtor/corinto/internal/auth"
 	"github.com/majimtor/corinto/internal/ingest"
 )
 
@@ -156,6 +157,10 @@ func (r *Retention) run(ctx context.Context) error {
 		{"daily_rows", func(ctx context.Context) (int, error) {
 			return r.change(ctx, `DELETE FROM link_daily_dimension WHERE ctid IN (SELECT ctid FROM link_daily_dimension WHERE day < $1::date LIMIT $2)`, day, r.batch)
 		}},
+		// The sessions that ended by themselves, which their package
+		// deletes: they are not kept for a time, and a run is when their
+		// rows are taken away.
+		{"sessions", func(ctx context.Context) (int, error) { return auth.DeleteEndedSessions(ctx, r.pool, r.batch) }},
 	} {
 		// In batches, until one comes back short. What each deleted is
 		// written at once: a run that stops halfway says how far it got.
@@ -186,7 +191,8 @@ func (r *Retention) run(ctx context.Context) error {
 	}
 	r.logger.InfoContext(ctx, "the retention run finished",
 		"inbox_events", deleted["inbox_events"], "dead_letters", deleted["dead_letters"],
-		"hourly_rows", deleted["hourly_rows"], "daily_rows", deleted["daily_rows"], "counters", counters)
+		"hourly_rows", deleted["hourly_rows"], "daily_rows", deleted["daily_rows"],
+		"sessions", deleted["sessions"], "counters", counters)
 	return nil
 }
 

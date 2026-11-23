@@ -132,6 +132,16 @@ func TestTheRetentionRunDeletesWhatIsDueAndNothingElse(t *testing.T) {
 		s.exec(t, `INSERT INTO pipeline_counters (day, workspace_id, name, value)
 		           VALUES (((`+day+`) AT TIME ZONE 'UTC')::date, $1::uuid, 'served', 5), (((`+day+`) AT TIME ZONE 'UTC')::date, NULL, 'not_found', 2)`, s.acme)
 	}
+	// The sessions: one past its lifetime, one left idle for longer than a
+	// session may be, and one that is in use.
+	for i, times := range []struct{ opened, seen string }{
+		{`now() - interval '13 hours'`, `now()`},
+		{`now() - interval '2 hours'`, `now() - interval '31 minutes'`},
+		{`now() - interval '2 hours'`, `now() - interval '29 minutes'`},
+	} {
+		s.exec(t, `INSERT INTO sessions (workspace_id, token_hash, created_at, expires_at, last_seen_at)
+		           VALUES ($1::uuid, sha256($2), `+times.opened+`, `+times.opened+` + interval '12 hours', `+times.seen+`)`, s.acme, []byte{byte(i)})
+	}
 	// The runs: one of long ago, and the one of yesterday.
 	s.exec(t, `INSERT INTO retention_runs (started_at, finished_at) VALUES
 	           (`+dayDue+` - interval '1 second', `+dayDue+`), (now() - interval '1 day', now() - interval '1 day')`)
@@ -155,9 +165,11 @@ func TestTheRetentionRunDeletesWhatIsDueAndNothingElse(t *testing.T) {
 		"the counters of the day before":                {`SELECT count(*) FROM pipeline_counters WHERE day < (` + dayDue + ` AT TIME ZONE 'UTC')::date`, 0},
 		"the counters from the day that is due on":      {`SELECT count(*) FROM pipeline_counters WHERE name <> 'accepted'`, 4},
 		"the count of the events accepted today":        {`SELECT count(*) FROM pipeline_counters WHERE name = 'accepted' AND value = 3`, 1},
+		"the sessions that ended":                       {`SELECT count(*) FROM sessions WHERE expires_at <= now() OR last_seen_at <= now() - interval '30 minutes'`, 0},
+		"the session in use":                            {`SELECT count(*) FROM sessions`, 1},
 		"the run of long ago":                           {`SELECT count(*) FROM retention_runs WHERE started_at < ` + dayDue, 0},
 		"the run of yesterday and the one of today":     {`SELECT count(*) FROM retention_runs`, 2},
-		"the run of today, with its end and its counts": {`SELECT count(*) FROM retention_runs WHERE started_at > now() - interval '1 minute' AND finished_at BETWEEN started_at AND now() AND (inbox_events, dead_letters, hourly_rows, daily_rows, counters) = (1, 1, 1, 1, 2)`, 1},
+		"the run of today, with its end and its counts": {`SELECT count(*) FROM retention_runs WHERE started_at > now() - interval '1 minute' AND finished_at BETWEEN started_at AND now() AND (inbox_events, dead_letters, hourly_rows, daily_rows, sessions, counters) = (1, 1, 1, 1, 2, 2)`, 1},
 	} {
 		if left := s.number(t, want.query); left != want.left {
 			t.Errorf("%s: %d rows, want %d", what, left, want.left)
@@ -165,7 +177,8 @@ func TestTheRetentionRunDeletesWhatIsDueAndNothingElse(t *testing.T) {
 	}
 	finished := log.lines(t, "the retention run finished")
 	if len(finished) != 1 || finished[0]["inbox_events"] != float64(1) || finished[0]["dead_letters"] != float64(1) ||
-		finished[0]["hourly_rows"] != float64(1) || finished[0]["daily_rows"] != float64(1) || finished[0]["counters"] != float64(2) {
+		finished[0]["hourly_rows"] != float64(1) || finished[0]["daily_rows"] != float64(1) ||
+		finished[0]["sessions"] != float64(2) || finished[0]["counters"] != float64(2) {
 		t.Errorf("the log says %v, want one run with what it deleted", finished)
 	}
 }
@@ -327,6 +340,7 @@ func TestARunCannotEndBeforeItBeganNorDeleteLessThanNothing(t *testing.T) {
 		"an end before the beginning": {`INSERT INTO retention_runs (finished_at) VALUES (now() - interval '1 second')`, "retention_runs_check"},
 		"events deleted below zero":   {`INSERT INTO retention_runs (inbox_events) VALUES (-1)`, "retention_runs_inbox_events_check"},
 		"counters deleted below zero": {`INSERT INTO retention_runs (counters) VALUES (-1)`, "retention_runs_counters_check"},
+		"sessions deleted below zero": {`INSERT INTO retention_runs (sessions) VALUES (-1)`, "retention_runs_sessions_check"},
 	} {
 		_, err := s.pool.Exec(t.Context(), refused.statement)
 		if refusal, ok := postgres.Refused(err); !ok || refusal.Code != "23514" || refusal.Constraint != refused.constraint {

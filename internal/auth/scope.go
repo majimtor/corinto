@@ -1,7 +1,9 @@
-// Package auth resolves who a request acts as. In the first stretch that is
-// an API key: a credential that a system sends in a header and that
-// resolves to a workspace and to the scopes the key was issued with. The
-// package owns the table of the keys and its queries.
+// Package auth resolves who a request acts as. For a system that is an API
+// key: a credential it sends in a header, which resolves to a workspace and
+// to the scopes the key was issued with. For a person in the panel it is a
+// session: a token their browser sends in a cookie, which resolves to a
+// workspace. The package owns the tables of the keys and of the sessions,
+// and their queries.
 package auth
 
 import (
@@ -49,14 +51,17 @@ func canonical(asked []Scope) ([]Scope, error) {
 	return slices.DeleteFunc(known, func(scope Scope) bool { return !slices.Contains(asked, scope) }), nil
 }
 
-// Principal is who a request acts as once its key is resolved: a workspace
-// and what the key may do in it.
+// Principal is who a request acts as once its key or its session is
+// resolved: a workspace and what may be done in it.
 type Principal struct {
 	WorkspaceID string
-	KeyID       string
-	Scopes      []Scope
-	// ExpiresAt is when the key stops authenticating, or nil when it has no
-	// expiry.
+	// KeyID names the key the request brought, and SessionID the session.
+	// A principal has one of the two.
+	KeyID     string
+	SessionID string
+	Scopes    []Scope
+	// ExpiresAt is when the key or the session stops authenticating, or
+	// nil for a key that has no expiry.
 	ExpiresAt *time.Time
 }
 
