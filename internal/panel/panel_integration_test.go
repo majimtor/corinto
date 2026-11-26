@@ -368,6 +368,10 @@ func TestThePageOfALinkShowsItsFiguresInBothLanguages(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		most, err := s.texts.plural(c.lang, "count.clicks", 1200)
+		if err != nil {
+			t.Fatal(err)
+		}
 		answer := s.get(t, workspace, "/"+string(c.lang)+"/links/"+target.ID)
 		page := answer.Body.String()
 		if answer.Code != http.StatusOK {
@@ -391,6 +395,7 @@ func TestThePageOfALinkShowsItsFiguresInBothLanguages(t *testing.T) {
 			"the day with the most":         peak + ".",
 			"a row of the series":           `<time datetime="2026-11-17">` + peak + `</time></th><td class="count">` + c.most + `</td>`,
 			"the site with the most":        `<th scope="row" class="address">news.example.org</th><td class="count">`,
+			"what that site adds up to":     "<p>" + s.text(t, c.lang, "breakdown.summary", "name", "news.example.org", "clicks", most, "total", 1201) + "</p>",
 			"the share of that site":        share,
 			"the clicks without a referrer": `<th scope="row" class="address">` + s.text(t, c.lang, "referrers.none") + "</th>",
 			"the kind of device":            `<th scope="row">` + s.text(t, c.lang, "device.desktop") + `</th><td class="count">` + c.clicks + "</td>",

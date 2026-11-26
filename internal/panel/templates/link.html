@@ -117,7 +117,7 @@
 {{$top := index .Referrers 0 -}}
 {{$site := $top.Site -}}
 {{if $top.None}}{{$site = t "referrers.none"}}{{else if $top.Others}}{{$site = t "referrers.other"}}{{end -}}
-<p>{{t "referrers.summary" "site" $site "clicks" (plural "count.clicks" $top.Clicks) "total" .ReferrerClicks}}</p>
+<p>{{t "breakdown.summary" "name" $site "clicks" (plural "count.clicks" $top.Clicks) "total" .ReferrerClicks}}</p>
 <table>
 <caption>{{t "referrers.caption"}}</caption>
 <thead>

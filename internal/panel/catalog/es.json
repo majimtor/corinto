@@ -74,7 +74,6 @@
   "series.day": "Día",
   "series.rules_mark": "v{version}",
   "referrers.title": "¿Desde qué sitios llegaron los clics humanos estimados?",
-  "referrers.summary": "«{site}» suma {clicks} de un total de {total}, más que ningún otro valor.",
   "referrers.caption": "Clics humanos estimados por sitio de procedencia",
   "referrers.site": "Sitio de procedencia",
   "referrers.none": "Sin referente",

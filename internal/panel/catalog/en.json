@@ -74,7 +74,6 @@
   "series.day": "Day",
   "series.rules_mark": "v{version}",
   "referrers.title": "Which sites did the estimated human clicks come from?",
-  "referrers.summary": "“{site}” has {clicks} of a total of {total}, more than any other value.",
   "referrers.caption": "Estimated human clicks by referring site",
   "referrers.site": "Referring site",
   "referrers.none": "No referrer",
