@@ -1,0 +1,19 @@
+{{define "title"}}{{t "links.title"}}{{end}}
+
+{{define "content" -}}
+<h1>{{t "links.title"}}</h1>
+{{if .Links -}}
+<table class="links">
+<caption>{{t "links.caption"}}</caption>
+<thead>
+<tr><th scope="col">{{t "links.name"}}</th><th scope="col">{{t "link.short"}}</th><th scope="col" class="leads">{{t "link.destination"}}</th><th scope="col">{{t "link.state"}}</th></tr>
+</thead>
+<tbody>
+{{range .Links}}<tr><th scope="row"><a href="{{.Page}}">{{.Name}}</a></th><td class="short">{{.Link.Domain}}/{{.Link.Identifier}}</td><td class="address leads">{{.Link.Resolved}}</td><td>{{t .StateKey}}</td></tr>
+{{end}}</tbody>
+</table>
+{{if .Next}}<p><a href="{{.Next}}">{{t "links.next"}}</a></p>{{end}}
+{{- else -}}
+<p>{{t "links.empty"}}</p>
+{{- end}}
+{{- end}}

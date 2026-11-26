@@ -145,3 +145,95 @@ func TestCreateWorkspaceRefusesWhatCannotBeAWorkspace(t *testing.T) {
 		}
 	})
 }
+
+// A workspace is read to be shown, without holding it, and only while it
+// is not blocked.
+func TestAWorkspaceIsReadUnlessItIsBlockedOrIsNotThere(t *testing.T) {
+	pool := database(t)
+	store := link.NewStore(pool, redirectDomain, rand.Reader)
+	created, err := link.CreateWorkspace(t.Context(), pool, link.WorkspaceDraft{
+		Name: "Acme", Demo: true, MayChooseAliases: true, Allowed: []string{"https://docs.example.com/guides"}, MaxLinks: 7, MaxKeys: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err := store.Workspace(t.Context(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.ID != created.ID || read.Name != "Acme" || !read.Demo || !read.MayChooseAliases || !slices.Equal(read.Allowed, created.Allowed) ||
+		read.MaxLinks != 7 || read.MaxKeys != 2 {
+		t.Errorf("the workspace read is %+v, want %+v", read, created)
+	}
+	// Reading holds nothing: the workspace is locked while it is read
+	// again, and the reading does not wait.
+	tx, err := pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(t.Context()) }()
+	if _, err := link.LockWorkspace(t.Context(), tx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Workspace(t.Context(), created.ID); err != nil {
+		t.Errorf("a workspace that is locked is read with %v", err)
+	}
+	if _, _, err := link.BlockWorkspace(t.Context(), tx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	for what, c := range map[string]struct {
+		id   string
+		want error
+	}{
+		"a blocked workspace":                 {created.ID, link.ErrWorkspaceBlocked},
+		"a workspace that does not exist":     {"00000000-0000-7000-8000-000000000000", link.ErrWorkspaceNotFound},
+		"something that is not an identifier": {"acme", link.ErrWorkspaceNotFound},
+	} {
+		if read, err := store.Workspace(t.Context(), c.id); !errors.Is(err, c.want) || read.ID != "" {
+			t.Errorf("%s: err = %v with the workspace %q, want %v and none", what, err, read.ID, c.want)
+		}
+	}
+}
+
+// The demo workspaces that can be entered: the ones that are not blocked,
+// the oldest first, and no workspace that is not a demo.
+func TestTheDemosAreTheDemoWorkspacesThatAreNotBlocked(t *testing.T) {
+	pool := database(t)
+	store := link.NewStore(pool, redirectDomain, rand.Reader)
+	if demos, err := store.Demos(t.Context()); err != nil || len(demos) != 0 {
+		t.Fatalf("a database without workspaces has %d demos (%v)", len(demos), err)
+	}
+	create := func(name string, demo bool) link.Workspace {
+		t.Helper()
+		created, err := link.CreateWorkspace(t.Context(), pool, link.WorkspaceDraft{Name: name, Demo: demo, MaxLinks: 100, MaxKeys: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return created
+	}
+	first, _, blocked, second := create("Acme", true), create("Harbor Bakery", false), create("Summit Outdoors", true), create("Globex", true)
+	tx, err := pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(t.Context()) }()
+	if _, _, err := link.BlockWorkspace(t.Context(), tx, blocked.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	demos, err := store.Demos(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(demos) != 2 || demos[0].ID != first.ID || demos[0].Name != "Acme" || !demos[0].Demo || demos[0].MaxLinks != 100 ||
+		demos[1].ID != second.ID || demos[1].Name != "Globex" {
+		t.Errorf("the demos are %+v, want %s and %s in that order", demos, first.Name, second.Name)
+	}
+}

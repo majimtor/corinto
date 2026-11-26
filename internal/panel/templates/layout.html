@@ -10,7 +10,14 @@
 <body>
 <a class="skip" href="#content">{{t "layout.skip"}}</a>
 <header class="top">
-<p class="brand">Corinto</p>
+<p class="brand"><a href="{{.Home}}">Corinto</a></p>
+{{if .Workspace -}}
+<nav class="session" aria-label="{{t "layout.session"}}">
+<p class="workspace">{{.Workspace}}</p>
+<a href="{{.Links}}">{{t "layout.links"}}</a>
+<form method="post" action="{{.Leave}}"><button type="submit">{{t "layout.leave"}}</button></form>
+</nav>
+{{end -}}
 <p class="language"><a href="{{.OtherPath}}" hreflang="{{.Other}}" lang="{{.Other}}">{{.OtherName}}</a></p>
 </header>
 <main id="content" tabindex="-1">

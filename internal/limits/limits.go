@@ -66,6 +66,15 @@ const (
 	APIFailedAuthenticationsPerMinute = 10
 )
 
+// What the panel allows one client address.
+const (
+	// DemoEntriesPerMinute is how many sessions one client address opens
+	// in a minute through the demo entry, which asks for no secret: a
+	// person enters once or twice, and whatever enters faster is filling
+	// the table of the sessions.
+	DemoEntriesPerMinute = 10
+)
+
 // What the host of the short links allows a request. A request to it is a
 // line and a few headers, and its answer is smaller still: whatever takes
 // longer or sends more is not a visitor following a link.

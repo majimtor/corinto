@@ -80,16 +80,13 @@ type referrer struct {
 	PercentOfMost float64
 }
 
-// linkPage serves the page of a link in one language: what it is, and its
-// figures of the last days with a series and a breakdown.
-func (p *panel) linkPage(lang language) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+// linkPage serves the page of a link in one language, for whoever is in a
+// workspace: what the link is, and its figures of the last days with a
+// series and a breakdown.
+func (p *panel) linkPage(lang language) func(http.ResponseWriter, *http.Request, member) {
+	return func(w http.ResponseWriter, r *http.Request, in member) {
 		ctx := r.Context()
-		principal, ok := principalOf(ctx)
-		if !ok {
-			p.missing(w, r, lang)
-			return
-		}
+		principal := in.principal
 		// The link is loaded by workspace and identifier, as the API loads
 		// it: one of another workspace is not found.
 		id, demo, err := p.settings.Links.InWorkspace(ctx, principal.WorkspaceID, r.PathValue("id"))
@@ -119,7 +116,7 @@ func (p *panel) linkPage(lang language) http.HandlerFunc {
 			return
 		}
 		shown := linkView{
-			view: p.viewOf(r, lang), Link: found, Name: found.Title, StateKey: stateKey(found, now), Demo: demo,
+			view: p.viewIn(r, lang, in), Link: found, Name: found.Title, StateKey: stateKey(found, now), Demo: demo,
 			Days: periodDays, First: period.From(), Last: period.To().AddDate(0, 0, -1),
 		}
 		if shown.Name == "" {

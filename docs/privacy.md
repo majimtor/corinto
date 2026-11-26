@@ -2,8 +2,8 @@
 
 What Corinto does with a request to a short link: what it reads, what it
 keeps, where and for how long. It is written for whoever deploys the
-software. It describes what is built so far, which has no panel and no
-webhooks; a slice that keeps something new adds it here. PLAN.md section
+software. It describes what is built so far, which has no webhooks; a
+slice that keeps something new adds it here. PLAN.md section
 17 holds the summary, and ADR 0008 and ADR 0010 the reasons.
 
 This is a technical reading of the code and of the sources those records
@@ -54,6 +54,7 @@ finished.
 | Reconciliation counts (`pipeline_counters`) | Counts per workspace and day of UTC: how many responses were served and what became of their events | With the aggregates of that day |
 | Versions of the rules (`rule_versions`) | For each version of the classification rules, the first and the last hour in which it classified an event | Never. It describes the rules, not an access |
 | Retention runs (`retention_runs`) | When the job ran and how many rows it deleted | 13 months after the run |
+| Panel session (`sessions`) | Its workspace, the SHA-256 of its token, and when it was opened, when it ends and when it was last used, to the minute. Nothing of whoever opened it: no address and no user-agent | When it is closed, and when its workspace is blocked or seeded again. One that ends by itself, twelve hours after it was opened or thirty minutes after its last request, is deleted by the daily job |
 
 The referrer host is the one thing kept that the requester writes. An
 event keeps the host it named for its 30 days. A breakdown keeps at most
@@ -99,21 +100,35 @@ there, and for how long, belongs to the deployment.
   route as a pattern and never as a path, the status, the duration and,
   when the request brought a valid key, the identifier of that key. No
   address, no user-agent, no query string and no credential. Checked by
-  `TestTheLogNamesAValidKeyAndNeverACredential` in `internal/api`.
+  `TestTheLogNamesAValidKeyAndNeverACredential` in `internal/api`. A
+  request to the panel leaves the same line, with the identifier of its
+  session where that of a key would be, and never its token. Checked by
+  `TestTheLogNamesTheSessionAndNeverTheTokenOrThePath` in `internal/panel`.
 
 ## What the people who manage links leave
 
 There are no accounts, no passwords and no e-mail addresses yet: the
 operator creates a workspace from the command line, and it is used with
-API keys.
+API keys. The panel is entered through the demo workspaces alone, without
+a secret.
 
 - A workspace and a key each have a name, which is whatever was typed.
 - The secret of a key is stored only as a SHA-256 hash. The key is shown
   once, when it is issued.
 - For each key, the day it was last used: a day, not a time.
 - The links: their destinations, campaign parameters, titles and tags.
-- The address an API request comes from is treated like the address of a
-  visitor: a rate-limit key in memory, and nothing else.
+- The address a request to the API or to the demo entry of the panel
+  comes from is treated like the address of a visitor: a rate-limit key in
+  memory, and nothing else.
+- A session of the panel is one cookie, `__Host-session`, or `session` in
+  the local run. It holds a random token that names the session and
+  nothing else, a script cannot read it, it goes back only to the host
+  that set it, and it goes when the browser is closed. It is all the panel
+  writes to a browser: no other cookie, no script and no storage. Leaving
+  takes it away and tells the browser to drop what it cached of the panel.
+  Checked by `TestEnteringOpensASessionAndLeadsToTheLinks` and
+  `TestLeavingClosesTheSessionOnTheServerAndInTheBrowser` in
+  `internal/panel`.
 
 The demo workspaces of the seed are fictitious, and the load scenario
 sends its requests from addresses reserved for benchmarks.

@@ -52,8 +52,8 @@ func (s *Store) Block(ctx context.Context, identifier string) (Link, error) {
 // many links it blocked. The block is written in each link, with a new
 // version, so that the replica of the redirect learns of it the way it
 // learns of any change and has one source to follow. Whoever calls it ends
-// the keys of the workspace in the same transaction. A workspace that is
-// already blocked is not an error.
+// the keys and the sessions of the workspace in the same transaction. A
+// workspace that is already blocked is not an error.
 func BlockWorkspace(ctx context.Context, tx pgx.Tx, workspaceID string) (string, int, error) {
 	id, ok := parseID(workspaceID)
 	if !ok {

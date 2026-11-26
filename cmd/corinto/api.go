@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +19,7 @@ import (
 	"github.com/majimtor/corinto/internal/ingest"
 	"github.com/majimtor/corinto/internal/limits"
 	"github.com/majimtor/corinto/internal/link"
+	"github.com/majimtor/corinto/internal/panel"
 	"github.com/majimtor/corinto/internal/postgres"
 	"github.com/majimtor/corinto/internal/rollup"
 )
@@ -27,8 +30,8 @@ import (
 const schemaCheckTimeout = 10 * time.Second
 
 // runAPI runs the role api: it checks the schema, holds the database pool,
-// serves the management API on one port and answers the health endpoints on
-// another.
+// serves the management API and the panel on one port and answers the
+// health endpoints on another.
 func runAPI(ctx context.Context, getenv func(string) string, logger *slog.Logger) error {
 	env := environment{getenv: getenv}
 	databaseURL := env.require("CORINTO_DATABASE_URL")
@@ -42,6 +45,12 @@ func runAPI(ctx context.Context, getenv func(string) string, logger *slog.Logger
 	proxies, err := limits.ParseProxies(getenv("CORINTO_TRUSTED_PROXIES"))
 	if err != nil {
 		return fmt.Errorf("CORINTO_TRUSTED_PROXIES: %w", err)
+	}
+	// Optional: without it the session cookie of the panel is the one for
+	// HTTPS.
+	cookie, err := panel.ParseCookieForm(getenv("CORINTO_SESSION_COOKIE"))
+	if err != nil {
+		return fmt.Errorf("CORINTO_SESSION_COOKIE: %w", err)
 	}
 
 	pool, err := pgxpool.New(ctx, databaseURL)
@@ -61,13 +70,26 @@ func runAPI(ctx context.Context, getenv func(string) string, logger *slog.Logger
 
 	// Built before anything listens: a server that does not serve exactly
 	// its contract does not start.
+	links, inbox, aggregates := link.NewStore(pool, redirectDomain, rand.Reader), ingest.NewStore(pool, logger), rollup.NewReader(pool)
 	handler, err := api.New(ctx, api.Settings{
 		Logger:         logger,
 		Keys:           auth.NewKeys(pool, rand.Reader),
 		TrustedProxies: proxies,
-		Links:          link.NewStore(pool, redirectDomain, rand.Reader),
-		Inbox:          ingest.NewStore(pool, logger),
-		Aggregates:     rollup.NewReader(pool),
+		Links:          links,
+		Inbox:          inbox,
+		Aggregates:     aggregates,
+	})
+	if err != nil {
+		return err
+	}
+	pages, err := panel.New(ctx, panel.Settings{
+		Logger:         logger,
+		Links:          links,
+		Inbox:          inbox,
+		Aggregates:     aggregates,
+		Sessions:       auth.NewSessions(pool, rand.Reader),
+		Cookie:         cookie,
+		TrustedProxies: proxies,
 	})
 	if err != nil {
 		return err
@@ -91,9 +113,23 @@ func runAPI(ctx context.Context, getenv func(string) string, logger *slog.Logger
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	ended := make(chan error, 2)
-	go func() { ended <- api.Serve(ctx, apiListener, handler, logger) }()
+	go func() { ended <- api.Serve(ctx, apiListener, served(handler, pages), logger) }()
 	go func() { ended <- health.Serve(ctx, healthListener, pool.Ping, nil, logger) }()
 	first := <-ended
 	stop()
 	return errors.Join(first, <-ended)
+}
+
+// served returns what the port of the api process answers with: the
+// management API under /v1, and the pages of the panel everywhere else.
+// The two share a port and nothing more: the API authenticates by key and
+// the panel by session, and neither reads what the other is given.
+func served(management, pages http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/") {
+			management.ServeHTTP(w, r)
+			return
+		}
+		pages.ServeHTTP(w, r)
+	})
 }

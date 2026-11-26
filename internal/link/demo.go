@@ -26,6 +26,22 @@ func DemoWorkspaces(ctx context.Context, tx pgx.Tx) ([]string, error) {
 	return ids, nil
 }
 
+// Demos returns the demo workspaces that can be entered, the oldest first:
+// the ones that are not blocked. It is what the panel offers at its door,
+// and it holds nothing.
+func (s *Store) Demos(ctx context.Context) ([]Workspace, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+workspaceColumns+` FROM workspaces WHERE demo AND state = 'active' ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("read the demo workspaces: %w", err)
+	}
+	demos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Workspace, error) { return scanWorkspace(row) })
+	if err != nil {
+		return nil, fmt.Errorf("read the demo workspaces: %w", err)
+	}
+	return demos, nil
+}
+
 // DeleteDemoWorkspace deletes a demo workspace and its links, rows and
 // all. It is what the seed does before it creates them again, and it is
 // not what a workspace does when it deletes a link: nothing is kept, and

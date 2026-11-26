@@ -1,11 +1,13 @@
 // Package panel serves the pages of the panel: HTML that the server renders
 // from templates, with no script (ADR 0014). A page reaches the domain
-// through the packages the API uses, and holds no query of its own.
+// through the packages the API uses, and holds no query of its own. Who
+// asks for a page is said by a session, which a cookie carries (ADR 0012).
 package panel
 
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -13,11 +15,15 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/netip"
+	"path"
+	"runtime/debug"
 	"strings"
 	"time"
 
 	"github.com/majimtor/corinto/internal/auth"
 	"github.com/majimtor/corinto/internal/ingest"
+	"github.com/majimtor/corinto/internal/limits"
 	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/rollup"
 )
@@ -44,16 +50,32 @@ type Settings struct {
 	// Inbox says how far the events are processed.
 	Inbox      *ingest.Store
 	Aggregates *rollup.Reader
+	// Sessions says who a request acts as.
+	Sessions *auth.Sessions
+	// Cookie is the form of the session cookie, which the installation
+	// chooses.
+	Cookie CookieForm
+	// TrustedProxies are the proxies whose forwarding header is believed
+	// when the address of a client is asked for, which is what the limit
+	// of the demo entry counts by.
+	TrustedProxies []netip.Prefix
 	// Now is the clock of the pages, or nil for the one of the system.
 	Now func() time.Time
 }
 
 // The pages of the panel, by the file that holds each.
 const (
+	pageEntry    = "entry.html"
+	pageLinks    = "links.html"
 	pageLink     = "link.html"
 	pageNotFound = "notfound.html"
 	pageFailed   = "failed.html"
+	pageRefused  = "refused.html"
+	pageLimited  = "limited.html"
+	pageInsecure = "insecure.html"
 )
+
+var pages = []string{pageEntry, pageLinks, pageLink, pageNotFound, pageFailed, pageRefused, pageLimited, pageInsecure}
 
 // panel is the pages of the panel and what they are rendered from.
 type panel struct {
@@ -65,14 +87,35 @@ type panel struct {
 	// stylesheetPath has the hash of the stylesheet in it, so that a
 	// browser may keep it for good: another stylesheet is another path.
 	stylesheetPath string
+	// entries counts the sessions each client address opens, by a key
+	// that addresses gives it and that cannot be turned back into one.
+	addresses *limits.Addresses
+	entries   *limits.Limiter
 }
 
-// New returns the handler of the pages of the panel.
-func New(settings Settings) (http.Handler, error) {
+// New returns the handler of the pages of the panel. It serves until ctx is
+// done, which is when it stops forgetting the addresses it limited.
+func New(ctx context.Context, settings Settings) (http.Handler, error) {
+	served, err := newPanel(ctx, settings)
+	if err != nil {
+		return nil, err
+	}
+	return served.handler(), nil
+}
+
+// newPanel reads what the pages are rendered from.
+func newPanel(ctx context.Context, settings Settings) (*panel, error) {
 	if settings.Now == nil {
 		settings.Now = time.Now
 	}
+	if settings.Cookie != CookieSecure && settings.Cookie != CookieLoopback {
+		return nil, fmt.Errorf("the form of the session cookie is %q, and it is %q or %q", settings.Cookie, CookieSecure, CookieLoopback)
+	}
 	texts, err := readCatalogs()
+	if err != nil {
+		return nil, err
+	}
+	addresses, err := limits.NewAddresses()
 	if err != nil {
 		return nil, err
 	}
@@ -81,10 +124,13 @@ func New(settings Settings) (http.Handler, error) {
 		settings: settings, texts: texts,
 		pages:          make(map[language]map[string]*template.Template, len(languages)),
 		stylesheetPath: "/assets/panel-" + hex.EncodeToString(hash[:8]) + ".css",
+		addresses:      addresses,
+		entries:        limits.NewLimiter(limits.DemoEntriesPerMinute, time.Minute, limits.DemoEntriesPerMinute, settings.Now),
 	}
+	go served.entries.Sweep(ctx)
 	for _, lang := range languages {
 		served.pages[lang] = make(map[string]*template.Template)
-		for _, page := range []string{pageLink, pageNotFound, pageFailed} {
+		for _, page := range pages {
 			parsed, err := template.New("layout").Funcs(served.functions(lang)).
 				ParseFS(templateFiles, "templates/layout.html", "templates/"+page)
 			if err != nil {
@@ -93,14 +139,144 @@ func New(settings Settings) (http.Handler, error) {
 			served.pages[lang][page] = parsed
 		}
 	}
+	return served, nil
+}
 
+// handler routes the paths of the panel to what serves them.
+func (p *panel) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET "+served.stylesheetPath, served.serveStylesheet)
+	mux.HandleFunc("GET "+p.stylesheetPath, p.serveStylesheet)
+	mux.HandleFunc("GET /{$}", p.root)
 	for _, lang := range languages {
-		mux.HandleFunc("GET /"+string(lang)+"/links/{id}", served.linkPage(lang))
+		door := "/" + string(lang) + "/"
+		mux.HandleFunc("GET /"+string(lang), func(w http.ResponseWriter, _ *http.Request) {
+			redirect(w, door, http.StatusPermanentRedirect)
+		})
+		mux.HandleFunc("GET "+door+"{$}", p.entryPage(lang))
+		mux.HandleFunc("POST "+door+"session", p.enter(lang))
+		mux.HandleFunc("POST "+door+"logout", p.leave(lang))
+		mux.HandleFunc("GET "+door+"links", p.inside(lang, p.linksPage(lang)))
+		mux.HandleFunc("GET "+door+"links/{id}", p.inside(lang, p.linkPage(lang)))
 	}
-	mux.HandleFunc("/", served.notFound)
-	return secure(mux), nil
+	// Every other path and every other method: there is no page there.
+	mux.HandleFunc("/", p.notFound)
+
+	// Nothing changes state on a GET, and a request that may change it
+	// comes from a page of the panel itself or is refused (ADR 0012).
+	sameOrigin := http.NewCrossOriginProtection()
+	sameOrigin.SetDenyHandler(http.HandlerFunc(p.refused))
+	return p.observe(secure(p.onePath(sameOrigin.Handler(mux))))
+}
+
+// note is what a request leaves for the line of the log that names it.
+type note struct {
+	id string
+	// session names the session of the request, when it brought one.
+	session string
+}
+
+type noteKey struct{}
+
+// noteOf returns the note of a request.
+func noteOf(ctx context.Context) *note {
+	left, _ := ctx.Value(noteKey{}).(*note)
+	if left == nil {
+		// Only a handler called outside observe gets here: a test.
+		return &note{}
+	}
+	return left
+}
+
+// recorder remembers the status of a response for the log.
+type recorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *recorder) WriteHeader(status int) {
+	if r.status == 0 {
+		r.status = status
+	}
+	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *recorder) Write(body []byte) (int, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	return r.ResponseWriter.Write(body)
+}
+
+// Unwrap gives http.ResponseController the writer underneath.
+func (r *recorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
+// observe is the outermost layer of every request to the panel. It gives
+// the request an identifier, turns a panic into the page of a failure and
+// logs one line, with the fields of the line the API logs (internal/api,
+// observe): the two write the same log and share no code, because what
+// each answers to a failure differs.
+func (p *panel) observe(next http.Handler) http.Handler {
+	logger := p.settings.Logger
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		// Generated here and never taken from the client.
+		id := rand.Text()
+		left := &note{id: id}
+		ctx := context.WithValue(r.Context(), noteKey{}, left)
+		r = r.WithContext(ctx)
+		w.Header().Set("X-Request-Id", id)
+
+		response := &recorder{ResponseWriter: w}
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				logger.ErrorContext(ctx, "a page panicked",
+					"request", id, "panic", fmt.Sprint(recovered), "stack", string(debug.Stack()))
+				if response.status == 0 {
+					lang := languageOf(r)
+					p.render(response, r, http.StatusInternalServerError, lang, pageFailed, p.viewOf(r, lang))
+				}
+			}
+			// The pattern of the route, never the path: a path carries
+			// identifiers, and a query string is not logged at all.
+			route := r.Pattern
+			if route == "/" {
+				route = ""
+			}
+			line := []any{
+				"request", id, "method", r.Method, "route", route,
+				"status", response.status, "duration", time.Since(start).String(),
+			}
+			if left.session != "" {
+				line = append(line, "session", left.session)
+			}
+			logger.InfoContext(ctx, "request", line...)
+		}()
+		next.ServeHTTP(response, r)
+	})
+}
+
+// onePath answers that there is no page at a path with an empty segment or
+// a dot segment. The mux would redirect it to its clean form with a page of
+// its own, which no catalogue wrote.
+func (p *panel) onePath(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked := r.URL.Path
+		// The door of a language ends in a slash, which cleaning takes away.
+		if clean := path.Clean(asked); !strings.HasPrefix(asked, "/") || (asked != clean && asked != clean+"/") {
+			p.notFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// redirect sends a request elsewhere in the panel. It writes no body: the
+// one the standard library writes has words of its own.
+func redirect(w http.ResponseWriter, to string, status int) {
+	header := w.Header()
+	header.Set("Location", to)
+	header.Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
 }
 
 // secure writes the headers every response of the panel carries.
@@ -143,6 +319,13 @@ type view struct {
 	OtherPath   string
 	OtherName   string
 	Stylesheet  string
+	// Home is the door of the panel in the language of the page.
+	Home string
+	// Workspace is the name of the workspace the request acts in, or empty
+	// when it acts in none. Links is where its links are listed, and Leave
+	// where its session is closed.
+	Workspace    string
+	Links, Leave string
 }
 
 // viewOf returns what every page of a request is rendered with. The other
@@ -158,10 +341,23 @@ func (p *panel) viewOf(r *http.Request, lang language) view {
 		// not found can have.
 		rest = "/"
 	}
+	door := "/" + string(lang) + "/"
 	return view{
 		Lang: lang, Other: other, OtherPath: "/" + string(other) + rest,
 		OtherName: p.texts.plain(other, "language.name"), Stylesheet: p.stylesheetPath,
+		Home: door, Links: door + "links", Leave: door + "logout",
 	}
+}
+
+// languageOf returns the language the first segment of a path names, or
+// Spanish when it names none.
+func languageOf(r *http.Request) language {
+	for _, known := range languages {
+		if r.URL.Path == "/"+string(known) || strings.HasPrefix(r.URL.Path, "/"+string(known)+"/") {
+			return known
+		}
+	}
+	return spanish
 }
 
 // render writes a page. It is rendered whole before a byte is sent, so a
@@ -188,7 +384,10 @@ func (p *panel) render(w http.ResponseWriter, r *http.Request, status int, lang 
 
 // fail answers a request the panel could not serve, and logs why.
 func (p *panel) fail(w http.ResponseWriter, r *http.Request, lang language, err error) {
-	p.settings.Logger.ErrorContext(r.Context(), "a page of the panel failed", "path", r.URL.Path, "error", err)
+	// The pattern of the route and never the path, as in the line of the
+	// request, which the identifier leads to.
+	p.settings.Logger.ErrorContext(r.Context(), "a page of the panel failed",
+		"request", noteOf(r.Context()).id, "route", r.Pattern, "error", err)
 	p.render(w, r, http.StatusInternalServerError, lang, pageFailed, p.viewOf(r, lang))
 }
 
@@ -201,13 +400,14 @@ func (p *panel) missing(w http.ResponseWriter, r *http.Request, lang language) {
 // notFound answers every path that is not a page, in the language its
 // first segment names, or in Spanish when it names none.
 func (p *panel) notFound(w http.ResponseWriter, r *http.Request) {
-	lang := spanish
-	for _, known := range languages {
-		if r.URL.Path == "/"+string(known) || strings.HasPrefix(r.URL.Path, "/"+string(known)+"/") {
-			lang = known
-		}
-	}
-	p.missing(w, r, lang)
+	p.missing(w, r, languageOf(r))
+}
+
+// refused answers a request that could change something and does not come
+// from a page of the panel.
+func (p *panel) refused(w http.ResponseWriter, r *http.Request) {
+	lang := languageOf(r)
+	p.render(w, r, http.StatusForbidden, lang, pageRefused, p.viewOf(r, lang))
 }
 
 func (p *panel) serveStylesheet(w http.ResponseWriter, _ *http.Request) {
@@ -215,17 +415,4 @@ func (p *panel) serveStylesheet(w http.ResponseWriter, _ *http.Request) {
 	header.Set("Content-Type", "text/css; charset=utf-8")
 	header.Set("Cache-Control", "public, max-age=31536000, immutable")
 	_, _ = w.Write(stylesheet)
-}
-
-// principalKey is the key under which who a request acts as travels in its
-// context.
-type principalKey struct{}
-
-// principalOf returns who a request acts as, and whether it acts as
-// anybody. The session of a visitor is what will say it (ADR 0012). Until
-// it exists nothing in the process can, so no request from outside acts as
-// anybody, and the process routes no page.
-func principalOf(ctx context.Context) (auth.Principal, bool) {
-	principal, ok := ctx.Value(principalKey{}).(auth.Principal)
-	return principal, ok
 }

@@ -43,6 +43,12 @@ services:
       # Where the redirect of the local stack will answer. Links are stored
       # with it.
       CORINTO_REDIRECT_DOMAIN: "localhost:8082"
+      # The session cookie of the panel. The stack serves plain HTTP on a
+      # loopback address, where one browser engine discards the cookie for
+      # HTTPS, so the form of the local run is the default here. A
+      # codespace, which a browser reaches over HTTPS, asks for `secure`
+      # (.devcontainer/devcontainer.json).
+      CORINTO_SESSION_COOKIE: ${CORINTO_SESSION_COOKIE:-loopback}
     ports:
       - "127.0.0.1:8080:8080"
       - "127.0.0.1:8081:8081"

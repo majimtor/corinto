@@ -78,8 +78,9 @@
 {{end -}}
 </svg>
 </div>
+<div class="scroll" role="group" aria-labelledby="series-caption" tabindex="0">
 <table>
-<caption>{{t "series.caption"}}</caption>
+<caption id="series-caption">{{t "series.caption"}}</caption>
 <thead>
 <tr><th scope="col">{{t "series.day"}}</th><th scope="col" class="count">{{t "metric.requests"}}</th><th scope="col" class="count">{{t "metric.estimated_human_clicks"}}</th><th scope="col" class="count">{{t "metric.inactive_requests"}}</th></tr>
 </thead>
@@ -89,6 +90,7 @@
 {{end -}}
 </tbody>
 </table>
+</div>
 </section>
 
 <section aria-labelledby="referrers-title">

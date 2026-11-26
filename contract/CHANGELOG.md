@@ -10,6 +10,9 @@ entries of the last release are still under `Unreleased`.
 
 ## Unreleased
 
+- The API is every path under `/v1/`, and the contract says so. A path
+  outside it used to be answered `404` as Problem Details; the host now
+  serves the panel there, as pages for a browser. No operation changes.
 - The values of a breakdown by `device` and by `browser` are in the
   contract: the schemas `Device` and `Browser` list them, and the
   description of a value names them. They are the values the API already
