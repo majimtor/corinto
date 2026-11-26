@@ -114,7 +114,8 @@ a secret.
 
 - A workspace and a key each have a name, which is whatever was typed.
 - The secret of a key is stored only as a SHA-256 hash. The key is shown
-  once, when it is issued.
+  once, when it is issued: by the command that issues it, or in the answer
+  to the form of the panel that does, which no cache keeps.
 - For each key, the day it was last used: a day, not a time.
 - The links: their destinations, campaign parameters, titles and tags.
 - The address a request to the API or to the demo entry of the panel

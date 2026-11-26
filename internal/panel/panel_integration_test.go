@@ -50,6 +50,7 @@ type stage struct {
 	pool     *pgxpool.Pool
 	store    *link.Store
 	sessions *auth.Sessions
+	keys     *auth.Keys
 	texts    catalogs
 	// log is what the panel logged, and clock the time its pages are
 	// asked at, which a test moves.
@@ -113,12 +114,13 @@ func newStageWith(t *testing.T, form CookieForm) *stage {
 	quiet := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	built := &stage{
 		pool: pool, store: link.NewStore(pool, redirectDomain, rand.Reader), sessions: auth.NewSessions(pool, rand.Reader),
-		log: &lockedLog{}, clock: &clock{at: today.Add(16 * time.Hour)},
+		keys: auth.NewKeys(pool, rand.Reader),
+		log:  &lockedLog{}, clock: &clock{at: today.Add(16 * time.Hour)},
 	}
 	built.served, err = newPanel(t.Context(), Settings{
 		Logger: slog.New(slog.NewJSONHandler(built.log, nil)),
 		Links:  built.store, Inbox: ingest.NewStore(pool, quiet), Aggregates: rollup.NewReader(pool),
-		Sessions: built.sessions, Cookie: form, Now: built.clock.now,
+		Sessions: built.sessions, Keys: built.keys, Cookie: form, Now: built.clock.now,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -223,6 +225,11 @@ func (s *stage) ask(t *testing.T, method, path string, changes ...func(*http.Req
 	}
 	answer := httptest.NewRecorder()
 	s.handler.ServeHTTP(answer, request)
+	// What html/template writes where a template gave it something that
+	// cannot go there, such as a list where an address goes.
+	if strings.Contains(answer.Body.String(), "ZgotmplZ") {
+		t.Errorf("%s %s: a template wrote something where it cannot go", method, path)
+	}
 	return answer
 }
 

@@ -47,6 +47,10 @@ type Key struct {
 	Scopes      []Scope
 	ExpiresAt   *time.Time
 	CreatedAt   time.Time
+	// LastUsedOn is the day of UTC of the last request the key
+	// authenticated, or nil for a key that was never presented. Only List
+	// and Get read it.
+	LastUsedOn *time.Time
 }
 
 // Draft is what is given to issue a key.
@@ -198,6 +202,77 @@ func (k *Keys) Authenticate(ctx context.Context, presented string) (Principal, e
 		principal.Scopes[i] = Scope(scope)
 	}
 	return principal, nil
+}
+
+// keyColumns are the columns of a key as List and Get read it, in the
+// order scanKey takes them.
+const keyColumns = `id, workspace_id, name, scopes, expires_at, created_at, last_used_on`
+
+// scanKey reads a key from a row of keyColumns.
+func scanKey(row pgx.Row) (Key, error) {
+	var (
+		key        Key
+		id, owner  pgtype.UUID
+		scopes     []string
+		lastUsedOn pgtype.Date
+	)
+	if err := row.Scan(&id, &owner, &key.Name, &scopes, &key.ExpiresAt, &key.CreatedAt, &lastUsedOn); err != nil {
+		return Key{}, err
+	}
+	key.ID, key.WorkspaceID = id.String(), owner.String()
+	key.Scopes = make([]Scope, len(scopes))
+	for i, scope := range scopes {
+		key.Scopes[i] = Scope(scope)
+	}
+	if lastUsedOn.Valid {
+		key.LastUsedOn = &lastUsedOn.Time
+	}
+	return key, nil
+}
+
+// List returns the keys of a workspace that are in force, the oldest
+// first: an identifier begins with the time it was made at. A revoked key
+// is not among them. One that has expired is, until it is revoked: they are
+// the keys the quota counts, so the list is never longer than the quota of
+// the workspace.
+func (k *Keys) List(ctx context.Context, workspaceID string) ([]Key, error) {
+	workspace, ok := parseID(workspaceID)
+	if !ok {
+		return nil, nil
+	}
+	rows, err := k.pool.Query(ctx,
+		`SELECT `+keyColumns+` FROM api_keys
+		  WHERE workspace_id = $1 AND revoked_at IS NULL
+		  ORDER BY id`, workspace)
+	if err != nil {
+		return nil, fmt.Errorf("list the keys of the workspace: %w", err)
+	}
+	keys, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Key, error) { return scanKey(row) })
+	if err != nil {
+		return nil, fmt.Errorf("list the keys of the workspace: %w", err)
+	}
+	return keys, nil
+}
+
+// Get returns a key of a workspace that is in force. One that does not
+// exist, one that is revoked and one of another workspace are ErrNotFound,
+// as for Revoke.
+func (k *Keys) Get(ctx context.Context, workspaceID, id string) (Key, error) {
+	workspace, ok := parseID(workspaceID)
+	key, ok2 := parseID(id)
+	if !ok || !ok2 {
+		return Key{}, ErrNotFound
+	}
+	found, err := scanKey(k.pool.QueryRow(ctx,
+		`SELECT `+keyColumns+` FROM api_keys
+		  WHERE workspace_id = $1 AND id = $2 AND revoked_at IS NULL`, workspace, key))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Key{}, ErrNotFound
+	}
+	if err != nil {
+		return Key{}, fmt.Errorf("read the key: %w", err)
+	}
+	return found, nil
 }
 
 // Revoke ends a key of a workspace: from the next request on it no longer

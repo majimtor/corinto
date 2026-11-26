@@ -56,6 +56,10 @@ func (p *panel) linksPage(lang language) func(http.ResponseWriter, *http.Request
 		if more {
 			shown.Next = here + "?" + url.Values{"after": {found[len(found)-1].ID}}.Encode()
 		}
+		// The page in the other language starts after the same link.
+		if after := r.URL.Query().Get("after"); after != "" {
+			shown.OtherPath += "?" + url.Values{"after": {after}}.Encode()
+		}
 		p.render(w, r, http.StatusOK, lang, pageLinks, shown)
 	}
 }

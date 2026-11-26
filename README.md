@@ -15,7 +15,8 @@ and the figures the events add up to, all of it through the API. The panel
 is the slice in progress: it has a door into the demo workspaces, the list
 of their links, the page of each, with the figures of the last seven,
 thirty or ninety days of synthetic traffic and three breakdowns of them,
-and the forms that create, change and delete a link.
+the forms that create, change and delete a link, and the keys of the API,
+which a demo workspace issues and revokes there.
 The webhooks come after it (PLAN.md section 18), so for now the tour is a
 handful of commands.
 

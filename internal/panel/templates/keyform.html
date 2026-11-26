@@ -1,0 +1,34 @@
+{{define "title"}}{{if .Problems}}{{t "form.error_mark"}} {{end}}{{t "keys.new"}}{{end}}
+
+{{define "content" -}}
+<h1>{{t "keys.new"}}</h1>
+{{if .Problems -}}
+<div class="problems" role="alert" aria-labelledby="problems-title">
+<h2 id="problems-title">{{plural "form.problems" .Found}}</h2>
+<ul>
+{{range .Problems}}<li>{{if .Linked}}<a href="#{{.Field}}">{{t .Key}}</a>{{else}}{{t .Key}}{{end}}</li>
+{{end}}</ul>
+</div>
+{{end -}}
+<form method="post" action="{{.Action}}" novalidate>
+<div class="field">
+<label for="name">{{t "keys.name"}}</label>
+<p class="hint" id="name-hint">{{t "keyform.name.hint"}}</p>
+{{with .Wrong.Name}}<p class="error" id="name-error">{{t .}}</p>{{end}}
+<input type="text" id="name" name="name" value="{{.Name}}" required autocomplete="off" aria-describedby="name-hint{{if .Wrong.Name}} name-error{{end}}"{{if .Wrong.Name}} aria-invalid="true"{{end}}>
+</div>
+<fieldset id="scopes" aria-describedby="scopes-hint{{if .Wrong.Scopes}} scopes-error{{end}}">
+<legend>{{t "keys.scopes"}}</legend>
+<p class="hint" id="scopes-hint">{{t "keyform.scopes.hint"}}</p>
+{{with .Wrong.Scopes}}<p class="error" id="scopes-error">{{t .}}</p>{{end}}
+{{range .Scopes}}<div class="choice"><input type="checkbox" id="{{.ID}}" name="scopes" value="{{.Scope}}"{{if .Chosen}} checked{{end}}><label for="{{.ID}}"><code>{{.Scope}}</code> {{t .NameKey}}</label></div>
+{{end}}</fieldset>
+<div class="field">
+<label for="expires_at">{{t "form.expires.label"}}</label>
+<p class="hint" id="expires_at-hint">{{t "keyform.expires.hint"}}</p>
+{{with .Wrong.ExpiresAt}}<p class="error" id="expires_at-error">{{t .}}</p>{{end}}
+<input type="datetime-local" id="expires_at" name="expires_at" value="{{.ExpiresAt}}" aria-describedby="expires_at-hint{{if .Wrong.ExpiresAt}} expires_at-error{{end}}"{{if .Wrong.ExpiresAt}} aria-invalid="true"{{end}}>
+</div>
+<p class="actions"><button type="submit" class="primary">{{t "keyform.create"}}</button> <a href="{{.Cancel}}">{{t "form.cancel"}}</a></p>
+</form>
+{{- end}}

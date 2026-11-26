@@ -260,6 +260,97 @@ func TestRevokingEndsAKeyAtOnceAndKeepsItsRow(t *testing.T) {
 	}
 }
 
+// The keys of a workspace as its panel lists them: the ones in force, the
+// oldest first, each with the day it was last used.
+func TestTheKeysInForceOfAWorkspaceAreListedTheOldestFirst(t *testing.T) {
+	pool := database(t)
+	keys := auth.NewKeys(pool, rand.Reader)
+	owner, stranger := workspace(t, pool, 10), workspace(t, pool, 10)
+
+	if listed, err := keys.List(t.Context(), owner); err != nil || len(listed) != 0 {
+		t.Fatalf("a workspace with no key lists %+v, %v", listed, err)
+	}
+
+	first, credential := issue(t, keys, owner, auth.ScopeLinksRead)
+	expiry := time.Now().Add(time.Hour).Truncate(time.Microsecond)
+	second, _, err := keys.Issue(t.Context(), owner,
+		auth.Draft{Name: "Launch week", Scopes: []auth.Scope{auth.ScopeMetricsRead, auth.ScopeLinksWrite}, ExpiresAt: &expiry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, _ := issue(t, keys, owner, auth.ScopeLinksRead)
+	foreign, _ := issue(t, keys, stranger, auth.ScopeLinksRead)
+
+	// The first was used today. The second was issued two hours ago and
+	// expired an hour ago: the row that is oldest by its date is not the
+	// first of the list. The third is revoked.
+	if _, err := keys.Authenticate(t.Context(), credential); err != nil {
+		t.Fatal(err)
+	}
+	var expired time.Time
+	if err := pool.QueryRow(t.Context(),
+		`UPDATE api_keys SET created_at = now() - interval '2 hours', expires_at = now() - interval '1 hour'
+		  WHERE id = $1 RETURNING expires_at`, second.ID).Scan(&expired); err != nil {
+		t.Fatal(err)
+	}
+	if err := keys.Revoke(t.Context(), owner, third.ID); err != nil {
+		t.Fatal(err)
+	}
+	var today time.Time
+	if err := pool.QueryRow(t.Context(), `SELECT (now() AT TIME ZONE 'UTC')::date`).Scan(&today); err != nil {
+		t.Fatal(err)
+	}
+
+	listed, err := keys.List(t.Context(), owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 2 || listed[0].ID != first.ID || listed[1].ID != second.ID {
+		t.Fatalf("the workspace lists %+v, want its first key and then its second", listed)
+	}
+	if got := listed[0]; got.WorkspaceID != owner || got.Name != "Deploy pipeline" || !slices.Equal(got.Scopes, []auth.Scope{auth.ScopeLinksRead}) ||
+		got.ExpiresAt != nil || !got.CreatedAt.Equal(first.CreatedAt) || got.LastUsedOn == nil || !got.LastUsedOn.Equal(today) {
+		t.Errorf("the first key is listed as %+v, want it as it was issued and used today, %s", got, today.Format(time.DateOnly))
+	}
+	if got := listed[1]; got.Name != "Launch week" || !slices.Equal(got.Scopes, []auth.Scope{auth.ScopeLinksWrite, auth.ScopeMetricsRead}) ||
+		got.ExpiresAt == nil || !got.ExpiresAt.Equal(expired) || got.LastUsedOn != nil {
+		t.Errorf("the second key is listed as %+v, want it with its scopes in their order, its expiry and no use", got)
+	}
+	if listed, err := keys.List(t.Context(), "acme"); err != nil || len(listed) != 0 {
+		t.Errorf("a workspace that is not an identifier lists %+v, %v", listed, err)
+	}
+	if listed, err := keys.List(t.Context(), stranger); err != nil || len(listed) != 1 || listed[0].ID != foreign.ID {
+		t.Errorf("the other workspace lists %+v, %v; want its one key", listed, err)
+	}
+
+	// One key, read as the list has it.
+	for i, key := range listed {
+		got, err := keys.Get(t.Context(), owner, key.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.ID != key.ID || got.WorkspaceID != key.WorkspaceID || got.Name != key.Name || !slices.Equal(got.Scopes, key.Scopes) ||
+			!got.CreatedAt.Equal(key.CreatedAt) || (got.ExpiresAt == nil) != (key.ExpiresAt == nil) || (got.LastUsedOn == nil) != (key.LastUsedOn == nil) {
+			t.Errorf("key %d is read as %+v, and listed as %+v", i, got, key)
+		}
+	}
+	for _, c := range []struct {
+		name          string
+		workspace, id string
+	}{
+		{"a revoked key", owner, third.ID},
+		{"a key of another workspace", owner, foreign.ID},
+		{"another workspace", stranger, first.ID},
+		{"a workspace that is not an identifier", "acme", first.ID},
+		{"a key that is not an identifier", owner, "deploy-pipeline"},
+		{"a key that does not exist", owner, stranger},
+	} {
+		if got, err := keys.Get(t.Context(), c.workspace, c.id); !errors.Is(err, auth.ErrNotFound) || got.ID != "" || got.Name != "" {
+			t.Errorf("%s is read as %+v, %v; want nothing and %v", c.name, got, err, auth.ErrNotFound)
+		}
+	}
+}
+
 // The operator stands above the workspaces: it revokes a key by its
 // identifier alone, and is told which key it was.
 func TestTheOperatorRevokesAKeyWhateverItsWorkspace(t *testing.T) {

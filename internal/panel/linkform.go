@@ -179,15 +179,21 @@ func (v linkValues) campaign() link.Campaign {
 	return link.Campaign{Source: v.Source, Medium: v.Medium, Name: v.Campaign, Term: v.Term, Content: v.Content}
 }
 
-// expiry reads the field of the expiry: no moment when it is empty, and
-// otherwise one that is later than now, as the API asks of it. It returns
-// the key of what is wrong with it, if anything is.
+// expiry reads the field of the expiry.
 func (v linkValues) expiry(now time.Time) (*time.Time, string) {
-	if v.ExpiresAt == "" {
+	return expiryOf(v.ExpiresAt, now)
+}
+
+// expiryOf reads what a field of an expiry holds: no moment when it is
+// empty, and otherwise one that is later than now, as the API asks of it.
+// It returns the key of what is wrong with it, if anything is. The form of
+// a link and the form of a key read theirs here.
+func expiryOf(typed string, now time.Time) (*time.Time, string) {
+	if typed == "" {
 		return nil, ""
 	}
 	for _, layout := range expiryLayouts {
-		if at, err := time.ParseInLocation(layout, v.ExpiresAt, time.UTC); err == nil {
+		if at, err := time.ParseInLocation(layout, typed, time.UTC); err == nil {
 			if !at.After(now) {
 				return nil, keyExpiryPast
 			}

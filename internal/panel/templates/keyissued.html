@@ -1,0 +1,18 @@
+{{define "title"}}{{t "issued.title"}}{{end}}
+
+{{define "content" -}}
+<h1>{{t "issued.title"}}</h1>
+<p class="notice">{{t "issued.once"}}</p>
+<div class="field">
+<label for="credential">{{t "issued.label"}}</label>
+<p class="hint" id="credential-hint">{{t "issued.hint"}}</p>
+<input type="text" id="credential" class="code" value="{{.Credential}}" readonly autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="credential-hint">
+</div>
+<dl class="facts">
+<div><dt>{{t "keys.name"}}</dt><dd>{{.Key.Name}}</dd></div>
+<div><dt>{{t "keys.identifier"}}</dt><dd class="address code">{{.Key.ID}}</dd></div>
+<div><dt>{{t "keys.scopes"}}</dt><dd><ul class="scopes">{{range .Key.Scopes}}<li><code>{{.}}</code></li>{{end}}</ul></dd></div>
+<div><dt>{{t "keys.expires"}}</dt><dd>{{with .Key.ExpiresAt}}{{moment .}}{{else}}{{t "keys.no_expiry"}}{{end}}</dd></div>
+</dl>
+<p class="actions"><a href="{{.Back}}">{{t "issued.back"}}</a></p>
+{{- end}}

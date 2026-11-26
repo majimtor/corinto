@@ -523,12 +523,13 @@ func TestTheListShowsTheLinksOfTheWorkspaceAndOfNoOther(t *testing.T) {
 		t.Errorf("the first page of %d links does not show %d of them and where the rest are", len(created), linksPerPage)
 	}
 	last := s.ask(t, http.MethodGet, "/en/links?after="+created[linksPerPage-1].ID, with(inside)).Body.String()
-	if strings.Count(last, `<th scope="row">`) != 1 || !strings.Contains(last, created[linksPerPage].ID) || strings.Contains(last, "?after=") {
+	if strings.Count(last, `<th scope="row">`) != 1 || !strings.Contains(last, created[linksPerPage].ID) || strings.Contains(last, s.text(t, english, "links.next")) {
 		t.Errorf("the last page does not show the one link that was left, and no page after it")
 	}
 	// The page after a link of another workspace is the page after nothing
 	// that this one has, and one after what is not a link does not exist.
-	if answer := s.ask(t, http.MethodGet, "/en/links?after="+theirs.ID, with(inside)); answer.Code != http.StatusOK || strings.Contains(answer.Body.String(), theirs.ID) {
+	if answer := s.ask(t, http.MethodGet, "/en/links?after="+theirs.ID, with(inside)); answer.Code != http.StatusOK ||
+		strings.Contains(answer.Body.String(), "/links/"+theirs.ID) || strings.Contains(answer.Body.String(), "Autumn") {
 		t.Errorf("the page after a link of another workspace = %d, or it shows that link", answer.Code)
 	}
 	s.shows(t, "the page after something that is not a link", s.ask(t, http.MethodGet, "/en/links?after=spring", with(inside)),

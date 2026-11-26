@@ -507,6 +507,70 @@ input[type="datetime-local"] {
   width: auto;
 }
 
+/* A choice of a form: its box and, next to it, what it chooses. The box is
+   24 pixels a side, and its row as tall as a finger needs. */
+.choice {
+  align-items: center;
+  display: flex;
+  gap: 0.625rem;
+  min-height: 2.75rem;
+}
+
+.choice label {
+  font-weight: 400;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--link);
+  flex: none;
+  height: 1.5rem;
+  min-height: 0;
+  padding: 0;
+  width: 1.5rem;
+}
+
+/* What a program reads or sends: an identifier, a scope, a key. */
+code,
+.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.9375em;
+}
+
+/* The scopes of a key, one under another. */
+.scopes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* The keys of a workspace, a handful at the most: each in a box of its own
+   with what it is, two in a row where there is room and one under another
+   on a narrow screen. A table of them would be wider than any screen. */
+.keys {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  list-style: none;
+  margin: 1rem 0;
+  padding: 0;
+}
+
+.keys > li {
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+}
+
+.keys h2 {
+  font-size: 1.125rem;
+  margin: 0 0 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.keys .actions {
+  margin: 0.5rem 0 0;
+}
+
 fieldset {
   border: 1px solid var(--grid);
   border-radius: 6px;
