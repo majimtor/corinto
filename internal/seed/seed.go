@@ -1,12 +1,14 @@
 // Package seed fills a database with the demo workspaces: made-up
 // workspaces, links and keys with which whoever runs the system can try
-// it (PLAN.md section 8).
+// it, and a made-up history of accesses to those links, so that there is
+// something to look at (PLAN.md section 8).
 package seed
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -43,35 +45,58 @@ type Workspace struct {
 	Key   string
 	// Links are the short identifiers of its links.
 	Links []string
+	// Events is how many events its history has.
+	Events int
+}
+
+// Options are what a run of the seed can be asked for.
+type Options struct {
+	// OnlyIfMissing makes the run do nothing when the database has a demo
+	// workspace, which it reports by returning none. It is what starting
+	// the system asks for: the first start seeds, and the ones after it
+	// leave the demo workspaces, and their keys, as they are. A demo
+	// workspace that a run left half made counts as one: a run without
+	// this makes it whole again.
+	OnlyIfMissing bool
+	// WithoutHistory leaves the demo workspaces with their links and their
+	// keys, and no access to any of them. The load run asks for it: what
+	// it measures is what it serves, and a history would be in its
+	// figures.
+	WithoutHistory bool
 }
 
 // Run deletes the demo workspaces with everything they hold and creates
-// the ones of the seed again, each with its links and a key that may do
-// everything in it. No workspace that is not a demo is touched.
+// the ones of the seed again, each with its links, a key that may do
+// everything in it and a history of the ninety days before the day of
+// now. No workspace that is not a demo is touched.
 //
 // The links are created through the store, by the rules of any other
 // link. The one that has expired did so a number of days before the day
-// of now, so that two runs on one day leave the same links.
+// of now, and the history ends the day before it, so that two runs on one
+// day leave the same links and the same figures. The history is written
+// and counted by what writes and counts any access (tell), and Run returns
+// when it is counted.
 //
 // A redirect that is running holds its own copy of the links, and keeps
 // the old ones until it reads the whole copy again, within five minutes,
 // or is started again.
-func Run(ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *auth.Keys, now time.Time) ([]Workspace, error) {
-	return run(ctx, pool, links, keys, now, false)
+func Run(
+	ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *auth.Keys, logger *slog.Logger,
+	now time.Time, options Options,
+) ([]Workspace, error) {
+	days := historyDays
+	if options.WithoutHistory {
+		days = 0
+	}
+	return run(ctx, pool, links, keys, logger, now, options.OnlyIfMissing, days)
 }
 
-// RunIfMissing does what Run does when the database has no demo workspace,
-// and nothing when it has one, which it reports by returning none. It is
-// what starting the system calls: the first start seeds, and the ones
-// after it leave the demo workspaces, and their keys, as they are.
-//
-// A demo workspace that a run left half made counts as one: Run makes it
-// whole again.
-func RunIfMissing(ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *auth.Keys, now time.Time) ([]Workspace, error) {
-	return run(ctx, pool, links, keys, now, true)
-}
-
-func run(ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *auth.Keys, now time.Time, onlyIfMissing bool) ([]Workspace, error) {
+// run is Run with a history of a number of days: none leaves the demo
+// workspaces without one.
+func run(
+	ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *auth.Keys, logger *slog.Logger,
+	now time.Time, onlyIfMissing bool, days int,
+) ([]Workspace, error) {
 	turn, err := pool.Acquire(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("take a connection for the seed: %w", err)
@@ -107,12 +132,21 @@ func run(ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *auth.
 	}
 	day := now.UTC().Truncate(24 * time.Hour)
 	seeded := make([]Workspace, 0, len(demos))
+	fields := make([]field, 0, len(demos))
 	for _, demo := range demos {
-		planted, err := plant(ctx, pool, links, keys, demo, day)
+		planted, grown, err := plant(ctx, pool, links, keys, demo, day)
 		if err != nil {
 			return nil, fmt.Errorf("seed the workspace %s: %w", demo.name, err)
 		}
 		seeded = append(seeded, planted)
+		fields = append(fields, grown)
+	}
+	written, err := tell(ctx, pool, logger, day, days, fields)
+	if err != nil {
+		return nil, fmt.Errorf("write the history of the seed: %w", err)
+	}
+	for i := range seeded {
+		seeded[i].Events = written[i]
 	}
 	return seeded, nil
 }
@@ -166,16 +200,18 @@ func forget(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
-// plant creates one demo workspace with its links and its key.
-func plant(ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *auth.Keys, demo demo, day time.Time) (Workspace, error) {
+// plant creates one demo workspace with its links and its key. It returns
+// it as the seed reports it, and as the history is written for it.
+func plant(ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *auth.Keys, demo demo, day time.Time) (Workspace, field, error) {
 	workspace, err := link.CreateWorkspace(ctx, pool, link.WorkspaceDraft{
 		Name: demo.name, Demo: true, MayChooseAliases: true, Allowed: allowed,
 		MaxLinks: limits.MaxLinksDemo, MaxKeys: limits.MaxKeys,
 	})
 	if err != nil {
-		return Workspace{}, err
+		return Workspace{}, field{}, err
 	}
 	planted := Workspace{ID: workspace.ID, Name: workspace.Name, Links: make([]string, 0, len(demo.links))}
+	grown := field{demo: demo, workspaceID: workspace.ID, links: make([]sown, 0, len(demo.links))}
 	for _, entry := range demo.links {
 		draft := link.Draft{
 			Alias: entry.alias, Destination: entry.destination, Campaign: entry.campaign,
@@ -187,14 +223,15 @@ func plant(ctx context.Context, pool *pgxpool.Pool, links *link.Store, keys *aut
 		}
 		created, err := links.Create(ctx, workspace.ID, draft)
 		if err != nil {
-			return Workspace{}, fmt.Errorf("create the link %s: %w", entry.alias, err)
+			return Workspace{}, field{}, fmt.Errorf("create the link %s: %w", entry.alias, err)
 		}
 		planted.Links = append(planted.Links, created.Identifier)
+		grown.links = append(grown.links, sown{planted: entry, id: created.ID})
 	}
 	key, credential, err := keys.Issue(ctx, workspace.ID, auth.Draft{Name: keyName, Scopes: auth.Scopes()})
 	if err != nil {
-		return Workspace{}, fmt.Errorf("issue its key: %w", err)
+		return Workspace{}, field{}, fmt.Errorf("issue its key: %w", err)
 	}
 	planted.KeyID, planted.Key = key.ID, credential
-	return planted, nil
+	return planted, grown, nil
 }

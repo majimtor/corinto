@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/majimtor/corinto/contract/contracttest"
 	"github.com/majimtor/corinto/internal/auth"
@@ -27,10 +28,10 @@ type seededWorkspace struct {
 
 // seedOnce runs the seed command, which must succeed, and returns what it
 // printed and what it logged.
-func seedOnce(t *testing.T, env func(string) string) ([]seededWorkspace, string) {
+func seedOnce(t *testing.T, env func(string) string, options ...string) ([]seededWorkspace, string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	if code := run(t.Context(), []string{"seed"}, env, &stdout, &stderr); code != exitOK {
+	if code := run(t.Context(), append([]string{"seed"}, options...), env, &stdout, &stderr); code != exitOK {
 		t.Fatalf("seed exit code = %d; log: %s", code, stderr.String())
 	}
 	var printed struct {
@@ -61,7 +62,8 @@ func TestTheSeedPrintsKeysThatOpenTheAPIAndLinksThatRedirect(t *testing.T) {
 			t.Errorf("the log does not name %s and its key, or carries the secret", workspace.Name)
 		}
 	}
-	if strings.Count(log, "demo workspace seeded") != 2 {
+	// It also says how many events the history of each has.
+	if strings.Count(log, "demo workspace seeded") != 2 || strings.Count(log, `"events":`) != 2 || strings.Contains(log, `"events":0`) {
 		t.Errorf("the log of the seed: %s", log)
 	}
 
@@ -103,6 +105,43 @@ func TestTheSeedPrintsKeysThatOpenTheAPIAndLinksThatRedirect(t *testing.T) {
 			}
 		}
 	}
+	// The history of the seed is counted when the seed returns: the first
+	// link has figures for its last thirty days, at once and with no
+	// worker running, and the status of the ingestion shows the dead
+	// letter of the seed with nothing left pending.
+	tomorrow := time.Now().UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
+	var summary struct {
+		Requests int64 `json:"requests"`
+		Clicks   int64 `json:"estimated_human_clicks"`
+	}
+	status, body := ask(seeded[0].Key, "/v1/links/"+first.Items[0].ID+"/metrics/summary?from="+
+		tomorrow.AddDate(0, 0, -30).Format(time.RFC3339)+"&to="+tomorrow.Format(time.RFC3339))
+	if err := json.Unmarshal(body, &summary); err != nil || status != http.StatusOK || summary.Requests < 1000 || summary.Clicks < 500 || summary.Clicks >= summary.Requests {
+		t.Errorf("the last thirty days of %s = %d %s (%v); want the figures of its history", first.Items[0].Identifier, status, body, err)
+	}
+	var ingestion struct {
+		Days []struct {
+			Served       int64 `json:"served"`
+			Lost         int64 `json:"lost"`
+			Pending      int64 `json:"pending"`
+			DeadLettered int64 `json:"dead_lettered"`
+		} `json:"days"`
+	}
+	status, body = ask(seeded[0].Key, "/v1/ingestion?days=7")
+	served, dead := int64(0), int64(0)
+	if err := json.Unmarshal(body, &ingestion); err != nil || status != http.StatusOK || len(ingestion.Days) != 7 {
+		t.Fatalf("GET /v1/ingestion = %d %s (%v)", status, body, err)
+	}
+	for _, day := range ingestion.Days {
+		served, dead = served+day.Served, dead+day.DeadLettered
+		if day.Lost != 0 || day.Pending != 0 {
+			t.Errorf("a day of the ingestion of %s has %d events lost and %d pending", seeded[0].Name, day.Lost, day.Pending)
+		}
+	}
+	if served < 1000 || dead != 1 {
+		t.Errorf("the last week of %s has %d responses served and %d dead letters, want its history and its one dead letter", seeded[0].Name, served, dead)
+	}
+
 	// What the two workspaces are for: a key of one against a link of the
 	// other.
 	if status, _ := ask(seeded[0].Key, "/v1/links/"+second.Items[0].ID); status != http.StatusNotFound {
@@ -161,10 +200,15 @@ func TestTheSeedPrintsKeysThatOpenTheAPIAndLinksThatRedirect(t *testing.T) {
 	}
 
 	// A second seed leaves new workspaces with new keys. The old keys open
-	// nothing: the API reads the key of each request.
-	again, _ := seedOnce(t, env)
+	// nothing: the API reads the key of each request. This one is asked
+	// for no history, as the load run asks: it writes none, and the
+	// history of the first goes with its workspaces.
+	again, log := seedOnce(t, env, "--no-history")
 	if len(again) != 2 || again[0].ID == seeded[0].ID || again[0].Key == seeded[0].Key || again[1].Key == seeded[1].Key {
 		t.Fatalf("the second seed printed the workspaces or the keys of the first")
+	}
+	if events := count(t, pool, "event_inbox") + count(t, pool, "event_dead_letters") + count(t, pool, "link_hourly") + count(t, pool, "pipeline_counters"); events != 0 || strings.Count(log, `"events":0`) != 2 {
+		t.Errorf("a seed asked for no history left %d events, dead letters, figures and counts; log: %s", events, log)
 	}
 	if status, _ := ask(seeded[0].Key, "/v1/key"); status != http.StatusUnauthorized {
 		t.Errorf("the key of the first seed = %d after the second, want 401", status)
@@ -178,13 +222,18 @@ func TestTheSeedPrintsKeysThatOpenTheAPIAndLinksThatRedirect(t *testing.T) {
 }
 
 // What `make up` runs: the first time it seeds and prints the keys, and
-// after that it changes nothing and prints none.
+// after that it changes nothing and prints none. The seeds of this test
+// write no history, which is not what it is about: the two options go
+// together, in either order.
 func TestTheSeedThatStartsWithTheSystemSeedsOnce(t *testing.T) {
 	env, pool := migrated(t)
+	orders := [][]string{{"seed", "--if-missing", "--no-history"}, {"seed", "--no-history", "--if-missing"}}
 	seed := func() ([]seededWorkspace, string) {
 		t.Helper()
 		var stdout, stderr bytes.Buffer
-		if code := run(t.Context(), []string{"seed", "--if-missing"}, env, &stdout, &stderr); code != exitOK {
+		args := orders[0]
+		orders = append(orders[1:], args)
+		if code := run(t.Context(), args, env, &stdout, &stderr); code != exitOK {
 			t.Fatalf("seed --if-missing exit code = %d; log: %s", code, stderr.String())
 		}
 		var printed struct {
@@ -215,7 +264,7 @@ func TestTheSeedThatStartsWithTheSystemSeedsOnce(t *testing.T) {
 	}
 	// Asked without the option, the seed creates them again whatever is
 	// there.
-	if replaced, _ := seedOnce(t, env); len(replaced) != 2 || replaced[0].ID == first[0].ID {
+	if replaced, _ := seedOnce(t, env, "--no-history"); len(replaced) != 2 || replaced[0].ID == first[0].ID {
 		t.Error("the seed without the option left the workspaces that were there")
 	}
 }

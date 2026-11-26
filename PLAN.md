@@ -347,14 +347,17 @@ tests: a fixed generator seed for the data and dates relative to the day it
 runs. Two
 demo workspaces, so that isolation can be checked with a key of one against
 resources of the other; 12 to 20 links in three campaigns; 90 days of
-synthetic history with weekly seasonality and a launch peak; traffic of all
+synthetic history, about 60,000 events up to the day before it runs, with
+weekly seasonality and a launch peak; traffic of all
 five classes; requests to an expired link; conversions from a test source;
 one dead-lettered event and one rejected reception, so the reconciliation
 is not a row of zeros. The synthetic history goes through the same
 classifier and the same consumer as real traffic, and the panel labels it
-as synthetic. Keys and signing secrets do not come from that generator and
-are never versioned (engineering rules); `corinto seed` shows them once and
-recreates everything.
+as synthetic. The dead-lettered event is the exception: nothing in the
+schema refuses an event, so the seed sets that one aside itself
+(`docs/delivery-semantics.md`). Keys and signing secrets do not come from
+that generator and are never versioned (engineering rules); `corinto seed`
+shows them once and recreates everything.
 
 ## 9. Authentication and authorization
 
