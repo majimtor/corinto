@@ -163,6 +163,41 @@ h2 {
   font-size: 0.9375rem;
 }
 
+/* The periods a page can be asked for, in a row. The one that is shown is
+   told by its weight and by the rule under it, and not by its colour
+   alone. Each is a target of 24 pixels at least. */
+.periods ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  list-style: none;
+  margin: 0.5rem 0 1rem;
+  padding: 0;
+}
+
+.periods a {
+  border-bottom: 3px solid transparent;
+  display: inline-block;
+  min-height: 1.5rem;
+  padding: 0.25rem 0.125rem;
+}
+
+.periods a[aria-current] {
+  border-bottom-color: var(--ink);
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* What opens a part of a page that starts closed: the table of a series,
+   which says what the drawing above it does, a row for each day. */
+summary {
+  color: var(--link);
+  cursor: pointer;
+  min-height: 1.5rem;
+  padding: 0.25rem 0;
+}
+
 .legend {
   display: flex;
   flex-wrap: wrap;

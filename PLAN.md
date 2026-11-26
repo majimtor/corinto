@@ -635,8 +635,10 @@ advice).
 
 - Charts are static SVG drawn by the server and follow the W3C guidance on
   complex images: each comes with the text alternatives the engineering
-  rules require, visible to everyone. They have no tooltips of their own
-  and nothing to drag.
+  rules require, there for everyone and not for a screen reader alone. The
+  question and the summary are in sight; the data table is in sight or
+  behind a disclosure that opens without a script. They have no tooltips
+  of their own and nothing to drag.
 - The automated check is axe, run in a browser by the end-to-end tests. By
   its own statement it finds on average 57 % of issues. Its only WCAG 2.2
   rule, target size, is disabled by default and is enabled here.

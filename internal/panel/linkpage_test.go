@@ -1,9 +1,12 @@
 package panel
 
 import (
+	"net/url"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/majimtor/corinto/internal/classify"
 	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/rollup"
 )
@@ -12,12 +15,19 @@ import (
 // in it.
 func thirtyDays(t *testing.T) (rollup.Period, []rollup.Point) {
 	t.Helper()
+	return daysOf(t, 30)
+}
+
+// daysOf returns a period of so many days and its series, with nothing in
+// it.
+func daysOf(t *testing.T, days int) (rollup.Period, []rollup.Point) {
+	t.Helper()
 	from := time.Date(2026, time.October, 21, 0, 0, 0, 0, time.UTC)
-	period, err := rollup.NewPeriod(from, from.AddDate(0, 0, 30), rollup.ByDay)
+	period, err := rollup.NewPeriod(from, from.AddDate(0, 0, days), rollup.ByDay)
 	if err != nil {
 		t.Fatal(err)
 	}
-	series := make([]rollup.Point, 30)
+	series := make([]rollup.Point, days)
 	for i := range series {
 		series[i].Start = from.AddDate(0, 0, i)
 	}
@@ -59,6 +69,95 @@ func TestTheSeriesNamesItsLastDayAndOneAWeekBack(t *testing.T) {
 	}
 	if len(shown.RuleMarks) != 0 {
 		t.Errorf("a series with no version of the rules has the marks %+v", shown.RuleMarks)
+	}
+}
+
+// The days named under a series never run into each other: every day of a
+// week, one a week of thirty days and one a fortnight of ninety, the last
+// day always among them.
+func TestTheDaysNamedUnderASeriesAreAsManyAsFit(t *testing.T) {
+	for _, c := range []struct {
+		days  int
+		named []int
+	}{
+		{days: 1, named: []int{0}},
+		{days: 7, named: []int{0, 1, 2, 3, 4, 5, 6}},
+		{days: 8, named: []int{0, 7}},
+		{days: 30, named: []int{1, 8, 15, 22, 29}},
+		{days: 49, named: []int{6, 13, 20, 27, 34, 41, 48}},
+		{days: 50, named: []int{7, 21, 35, 49}},
+		{days: 90, named: []int{5, 19, 33, 47, 61, 75, 89}},
+		{days: 397, named: []int{18, 81, 144, 207, 270, 333, 396}},
+	} {
+		period, series := daysOf(t, c.days)
+		shown := linkView{Series: series}
+		shown.draw(period)
+		var named []int
+		for _, label := range shown.DayLabels {
+			named = append(named, int(label.Day.Sub(period.From())/(24*time.Hour)))
+		}
+		if !slices.Equal(named, c.named) {
+			t.Errorf("a series of %d days names the days %v, want %v", c.days, named, c.named)
+		}
+		if len(named) > maxDayLabels {
+			t.Errorf("a series of %d days names %d of them, and %d fit", c.days, len(named), maxDayLabels)
+		}
+	}
+	// The periods of the page are among the ones this test draws.
+	for _, days := range periods {
+		if !slices.Contains([]int{7, 30, 90}, days) {
+			t.Errorf("the page offers a period of %d days, which this test does not draw", days)
+		}
+	}
+}
+
+// The address of the page of a link names its period, as the page itself
+// writes it, or names none.
+func TestThePeriodOfAPageIsOneOfThree(t *testing.T) {
+	for _, c := range []struct {
+		query string
+		days  int
+		ok    bool
+	}{
+		{query: "", days: 30, ok: true},
+		{query: "days=7", days: 7, ok: true},
+		{query: "days=30", days: 30, ok: true},
+		{query: "days=90", days: 90, ok: true},
+		// Whatever else the address carries is not what names the period.
+		{query: "after=7", days: 30, ok: true},
+		{query: "days=90&after=7", days: 90, ok: true},
+		{query: "days=14"}, {query: "days=0"}, {query: "days=-7"}, {query: "days=91"}, {query: "days=397"},
+		{query: "days="}, {query: "days"}, {query: "days=seven"},
+		// A number written another way is not what the page writes.
+		{query: "days=07"}, {query: "days=7.0"}, {query: "days=%207"}, {query: "days=7+"}, {query: "days=0x7"}, {query: "days=9e1"},
+		// Twice is not once, even twice the same.
+		{query: "days=7&days=7"}, {query: "days=7&days=90"}, {query: "days=30&days="},
+	} {
+		query, err := url.ParseQuery(c.query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if days, ok := periodOf(query); days != c.days || ok != c.ok {
+			t.Errorf("the period of %q = %d, %t; want %d, %t", c.query, days, ok, c.days, c.ok)
+		}
+	}
+	// The page of the default period has one address, and each of the
+	// others names its days.
+	if got := []string{periodQuery(7), periodQuery(30), periodQuery(90)}; !slices.Equal(got, []string{"?days=7", "", "?days=90"}) {
+		t.Errorf("the addresses of the three periods carry %q", got)
+	}
+	// What the page writes for a period is what it reads as that period.
+	for _, days := range periods {
+		query, err := url.ParseQuery(periodQuery(days)[min(1, len(periodQuery(days))):])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := periodOf(query); got != days || !ok {
+			t.Errorf("the address the page writes for %d days is read as %d, %t", days, got, ok)
+		}
+	}
+	if !slices.Contains(periods, defaultPeriod) || !slices.IsSorted(periods) || len(slices.Compact(slices.Clone(periods))) != len(periods) {
+		t.Errorf("the periods are %v: the default one is not among them, or they are not each once and in order", periods)
 	}
 }
 
@@ -119,6 +218,48 @@ func TestTheReferrersAreRowsWithTheRestCountedTogetherAtTheEnd(t *testing.T) {
 	empty.share(nil, 0)
 	if len(empty.Referrers) != 0 || empty.ReferrerClicks != 0 {
 		t.Errorf("a breakdown of nothing has the rows %+v", empty.Referrers)
+	}
+}
+
+// A breakdown by a closed enumeration: the value with the most first, as
+// the breakdown gives them, and the one of what the rules do not tell apart
+// last, whatever it adds up to. Nothing the breakdown counted is lost.
+func TestTheRowsOfAnEnumerationEndWithWhatTheRulesDoNotTellApart(t *testing.T) {
+	devices := partsOf("device.", classify.Devices(), classify.DeviceOther, []rollup.Share{
+		{Value: "other", Clicks: 300}, {Value: "mobile", Clicks: 200}, {Value: "desktop", Clicks: 50},
+	}, 0)
+	want := []part{
+		{NameKey: "device.mobile", Clicks: 200, PercentOfMost: 66.6},
+		{NameKey: "device.desktop", Clicks: 50, PercentOfMost: 16.6},
+		{NameKey: "device.other", Clicks: 300, PercentOfMost: 100},
+	}
+	if !slices.Equal(devices.Rows, want) || devices.Clicks != 550 || devices.Top != want[2] {
+		t.Errorf("the devices are %+v, which add up to %d with %+v at the top; want %+v, 550 and the last", devices.Rows, devices.Clicks, devices.Top, want)
+	}
+
+	// A value this page has no name for, and the clicks of the values the
+	// breakdown did not name, are counted in the last row; with no click
+	// of its own, that row is still there for them.
+	browsers := partsOf("browser.", classify.Browsers(), classify.BrowserOther, []rollup.Share{
+		{Value: "safari", Clicks: 40}, {Value: "chrome", Clicks: 40}, {Value: "a_browser_of_tomorrow", Clicks: 7},
+	}, 3)
+	want = []part{
+		{NameKey: "browser.safari", Clicks: 40, PercentOfMost: 100},
+		{NameKey: "browser.chrome", Clicks: 40, PercentOfMost: 100},
+		{NameKey: "browser.other", Clicks: 10, PercentOfMost: 25},
+	}
+	// Of two rows with as many clicks, the first is the one at the top.
+	if !slices.Equal(browsers.Rows, want) || browsers.Clicks != 90 || browsers.Top != want[0] {
+		t.Errorf("the browsers are %+v, which add up to %d with %+v at the top; want %+v, 90 and the first", browsers.Rows, browsers.Clicks, browsers.Top, want)
+	}
+
+	// The row of the rest is there only when something is counted in it.
+	only := partsOf("device.", classify.Devices(), classify.DeviceOther, []rollup.Share{{Value: "tablet", Clicks: 1}}, 0)
+	if len(only.Rows) != 1 || only.Rows[0] != (part{NameKey: "device.tablet", Clicks: 1, PercentOfMost: 100}) || only.Clicks != 1 {
+		t.Errorf("a breakdown of one value is %+v", only)
+	}
+	if empty := partsOf("device.", classify.Devices(), classify.DeviceOther, nil, 0); len(empty.Rows) != 0 || empty.Clicks != 0 || empty.Top != (part{}) {
+		t.Errorf("a breakdown of nothing is %+v", empty)
 	}
 }
 

@@ -3,24 +3,34 @@ package panel
 import (
 	"errors"
 	"net/http"
+	"net/url"
+	"slices"
+	"strconv"
 	"time"
 
+	"github.com/majimtor/corinto/internal/classify"
 	"github.com/majimtor/corinto/internal/link"
 	"github.com/majimtor/corinto/internal/panel/chart"
 	"github.com/majimtor/corinto/internal/rollup"
 )
 
 const (
-	// periodDays is how many days of UTC the page of a link covers, today
-	// included.
-	periodDays = 30
-	// labelEvery is how many days apart the days named under the series
-	// are: a week, so each label is the same weekday.
-	labelEvery = 7
+	// defaultPeriod is how many days of UTC the page of a link covers when
+	// it is asked for no other period, today included.
+	defaultPeriod = 30
+	// periodField is what names the period in the address of the page.
+	periodField = "days"
+	// maxDayLabels is how many days are named under a series at the most:
+	// more of them run into each other on the narrowest drawing.
+	maxDayLabels = 7
 	// namedReferrers is how many referring sites the page names. The rest
 	// are counted together.
 	namedReferrers = 10
 )
+
+// periods are the periods the page of a link can be asked for, in days.
+// The seed writes a history as long as the longest.
+var periods = []int{7, defaultPeriod, 90}
 
 // linkView is what the page of a link is rendered with.
 type linkView struct {
@@ -40,9 +50,11 @@ type linkView struct {
 	Edit, Delete, Switch string
 	Disabled, Blocked    bool
 
-	// The period: how many days, the first and the last.
+	// The period: how many days, the first and the last. Periods are the
+	// ones the page can be asked for.
 	Days        int
 	First, Last time.Time
+	Periods     []choice
 	// Through is how far the events are processed.
 	Through  time.Time
 	Versions []rollup.RuleVersion
@@ -62,6 +74,18 @@ type linkView struct {
 	// human clicks first, and ReferrerClicks what they add up to.
 	Referrers      []referrer
 	ReferrerClicks int64
+	// Devices and Browsers are the same clicks by what the rules say of
+	// the client that made each.
+	Devices, Browsers parts
+}
+
+// choice is one of the periods the page of a link can be asked for: how
+// many days it has, where the page of that period is, and whether it is
+// the one shown.
+type choice struct {
+	Days    int64
+	Path    string
+	Current bool
 }
 
 type dayLabel struct {
@@ -86,13 +110,63 @@ type referrer struct {
 	PercentOfMost float64
 }
 
+// part is a row of a breakdown by a closed enumeration of the rules: the
+// kind of device or the family of browser. NameKey is the key of the text
+// that names its value.
+type part struct {
+	NameKey       string
+	Clicks        int64
+	PercentOfMost float64
+}
+
+// parts is a breakdown by a closed enumeration: its rows, what they add up
+// to, and the first of the rows with the most clicks.
+type parts struct {
+	Rows   []part
+	Clicks int64
+	Top    part
+}
+
+// periodOf returns how many days the address of a page asks for: the
+// default when it names no period, and false when it names anything that
+// is not one of the periods, written as the page writes it.
+func periodOf(query url.Values) (int, bool) {
+	asked, named := query[periodField]
+	if !named {
+		return defaultPeriod, true
+	}
+	for _, days := range periods {
+		if len(asked) == 1 && asked[0] == strconv.Itoa(days) {
+			return days, true
+		}
+	}
+	return 0, false
+}
+
+// periodQuery returns what the address of a page carries for a period:
+// nothing for the default, so that the page of a link has one address when
+// it is asked for no period.
+func periodQuery(days int) string {
+	if days == defaultPeriod {
+		return ""
+	}
+	return "?" + url.Values{periodField: {strconv.Itoa(days)}}.Encode()
+}
+
 // linkPage serves the page of a link in one language, for whoever is in a
 // workspace: what the link is, and its figures of the last days with a
-// series and a breakdown.
+// series and three breakdowns. The address says how many days.
 func (p *panel) linkPage(lang language) func(http.ResponseWriter, *http.Request, member) {
 	return func(w http.ResponseWriter, r *http.Request, in member) {
 		ctx := r.Context()
 		principal := in.principal
+		// A period the page does not have is a page that does not exist,
+		// like a list of links that starts after something that is not one.
+		days, ok := periodOf(r.URL.Query())
+		if !ok {
+			p.missing(w, r, lang)
+			return
+		}
 		// The link is loaded by workspace and identifier, as the API loads
 		// it: one of another workspace is not found.
 		id, demo, err := p.settings.Links.InWorkspace(ctx, principal.WorkspaceID, r.PathValue("id"))
@@ -116,19 +190,24 @@ func (p *panel) linkPage(lang language) func(http.ResponseWriter, *http.Request,
 
 		now := p.settings.Now().UTC()
 		tomorrow := now.Truncate(24 * time.Hour).Add(24 * time.Hour)
-		period, err := rollup.NewPeriod(tomorrow.AddDate(0, 0, -periodDays), tomorrow, rollup.ByDay)
+		period, err := rollup.NewPeriod(tomorrow.AddDate(0, 0, -days), tomorrow, rollup.ByDay)
 		if err != nil {
 			p.fail(w, r, lang, err)
 			return
 		}
 		shown := linkView{
 			view: p.viewIn(r, lang, in), Link: found, Name: found.Title, StateKey: stateKey(found, now), Demo: demo,
-			Days: periodDays, First: period.From(), Last: period.To().AddDate(0, 0, -1),
+			Days: days, First: period.From(), Last: period.To().AddDate(0, 0, -1),
 		}
 		if shown.Name == "" {
 			shown.Name = found.Identifier
 		}
 		page := "/" + string(lang) + "/links/" + found.ID
+		for _, offered := range periods {
+			shown.Periods = append(shown.Periods, choice{Days: int64(offered), Path: page + periodQuery(offered), Current: offered == days})
+		}
+		// The page in the other language is of the same period.
+		shown.OtherPath += periodQuery(days)
 		shown.Edit, shown.Delete, shown.Switch = page+"/edit", page+"/delete", page+"/disable"
 		shown.Disabled, shown.Blocked = found.State == link.StateDisabled, found.State == link.StateBlocked
 		if shown.Disabled {
@@ -162,9 +241,23 @@ func (p *panel) linkPage(lang language) func(http.ResponseWriter, *http.Request,
 			p.fail(w, r, lang, err)
 			return
 		}
+		// The two enumerations are asked for whole, and for more values
+		// than they have: what is past them is counted, not lost.
+		devices, otherDevices, err := p.settings.Aggregates.Breakdown(ctx, id, period, rollup.DimensionDevice, rollup.DefaultShares)
+		if err != nil {
+			p.fail(w, r, lang, err)
+			return
+		}
+		browsers, otherBrowsers, err := p.settings.Aggregates.Breakdown(ctx, id, period, rollup.DimensionBrowser, rollup.DefaultShares)
+		if err != nil {
+			p.fail(w, r, lang, err)
+			return
+		}
 
 		shown.draw(period)
 		shown.share(shares, others)
+		shown.Devices = partsOf("device.", classify.Devices(), classify.DeviceOther, devices, otherDevices)
+		shown.Browsers = partsOf("browser.", classify.Browsers(), classify.BrowserOther, browsers, otherBrowsers)
 		p.render(w, r, http.StatusOK, lang, pageLink, shown)
 	}
 }
@@ -190,8 +283,9 @@ func (v *linkView) draw(period rollup.Period) {
 		}
 	}
 	v.Chart = chart.NewLines(requests, clicks)
-	// The last day is always named, and then one a week back from it.
-	for i := (len(v.Series) - 1) % labelEvery; i < len(v.Series); i += labelEvery {
+	// The last day is always named, and then the ones a step back from it.
+	every := labelEvery(len(v.Series))
+	for i := (len(v.Series) - 1) % every; i < len(v.Series); i += every {
 		v.DayLabels = append(v.DayLabels, dayLabel{X: v.Chart.X(i), Day: v.Series[i].Start})
 	}
 	// The first version of a period was already in use when it began, or
@@ -229,6 +323,63 @@ func (v *linkView) share(shares []rollup.Share, others int64) {
 		most = max(most, row.Clicks)
 	}
 	for i := range v.Referrers {
-		v.Referrers[i].PercentOfMost = float64(v.Referrers[i].Clicks*1000/max(most, 1)) / 10
+		v.Referrers[i].PercentOfMost = percentOfMost(v.Referrers[i].Clicks, most)
 	}
+}
+
+// percentOfMost returns how long the bar of a row is: its part of the row
+// with the most clicks, to a tenth of a percent.
+func percentOfMost(clicks, most int64) float64 {
+	return float64(clicks*1000/max(most, 1)) / 10
+}
+
+// labelEvery returns how many days apart the days named under a series
+// are. Every day of a short series is named. A longer one names a day every
+// so many whole weeks, as few as leave no more names than fit: each is then
+// the same day of the week.
+func labelEvery(days int) int {
+	if days <= maxDayLabels {
+		return 1
+	}
+	every := 7
+	for (days+every-1)/every > maxDayLabels {
+		every += 7
+	}
+	return every
+}
+
+// partsOf turns a breakdown by a closed enumeration into the rows of the
+// page: the value with the most clicks first, as the breakdown gives them,
+// and last the one the rules give to what they do not tell apart. A value
+// is named by the text whose key is the prefix and the value. That last
+// row also counts what the page has no name for: a value the enumeration
+// gained after the page was written, and the values past the ones the
+// breakdown names.
+func partsOf[V ~string](prefix string, known []V, rest V, shares []rollup.Share, others int64) parts {
+	var found parts
+	unnamed := others
+	for _, share := range shares {
+		if value := V(share.Value); value == rest || !slices.Contains(known, value) {
+			unnamed += share.Clicks
+			continue
+		}
+		found.Rows = append(found.Rows, part{NameKey: prefix + share.Value, Clicks: share.Clicks})
+	}
+	if unnamed > 0 {
+		found.Rows = append(found.Rows, part{NameKey: prefix + string(rest), Clicks: unnamed})
+	}
+	for _, row := range found.Rows {
+		found.Clicks += row.Clicks
+		// The first of the rows with the most: a later one with as many
+		// does not take its place.
+		if row.Clicks > found.Top.Clicks {
+			found.Top = row
+		}
+	}
+	for i := range found.Rows {
+		found.Rows[i].PercentOfMost = percentOfMost(found.Rows[i].Clicks, found.Top.Clicks)
+	}
+	// The top is one of the rows, as the page has it: with its bar.
+	found.Top.PercentOfMost = percentOfMost(found.Top.Clicks, found.Top.Clicks)
+	return found
 }

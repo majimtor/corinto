@@ -19,6 +19,13 @@
 
 <section aria-labelledby="period">
 <h2 id="period">{{t "link.period" "days" .Days "first" (date .First) "last" (date .Last)}}</h2>
+<nav class="periods" aria-label="{{t "period.label"}}">
+<ul>
+{{range .Periods -}}
+<li><a href="{{.Path}}"{{if .Current}} aria-current="page"{{end}}>{{plural "period.days" .Days}}</a></li>
+{{end -}}
+</ul>
+</nav>
 <p>{{t "link.through" "moment" (moment .Through)}}</p>
 {{if eq (len .Versions) 1 -}}
 <p>{{t "link.rules" "version" (index .Versions 0).Version}}</p>
@@ -86,6 +93,8 @@
 {{end -}}
 </svg>
 </div>
+<details>
+<summary>{{t "series.table"}}</summary>
 <div class="scroll" role="group" aria-labelledby="series-caption" tabindex="0">
 <table>
 <caption id="series-caption">{{t "series.caption"}}</caption>
@@ -99,6 +108,7 @@
 </tbody>
 </table>
 </div>
+</details>
 </section>
 
 <section aria-labelledby="referrers-title">
@@ -111,7 +121,7 @@
 <table>
 <caption>{{t "referrers.caption"}}</caption>
 <thead>
-<tr><th scope="col">{{t "referrers.site"}}</th><th scope="col" class="count">{{t "metric.estimated_human_clicks"}}</th><th scope="col">{{t "referrers.share"}}</th></tr>
+<tr><th scope="col">{{t "referrers.site"}}</th><th scope="col" class="count">{{t "metric.estimated_human_clicks"}}</th><th scope="col">{{t "breakdown.share"}}</th></tr>
 </thead>
 <tbody>
 {{range .Referrers -}}
@@ -120,8 +130,50 @@
 </tbody>
 </table>
 {{- else -}}
-<p>{{t "referrers.empty" "days" .Days}}</p>
+<p>{{t "breakdown.empty" "days" .Days}}</p>
 {{- end}}
 <p class="definition">{{t "referrers.definition"}}</p>
+</section>
+
+<section aria-labelledby="devices-title">
+<h2 id="devices-title">{{t "devices.title"}}</h2>
+{{if .Devices.Rows -}}
+<p>{{t "breakdown.summary" "name" (t .Devices.Top.NameKey) "clicks" (plural "count.clicks" .Devices.Top.Clicks) "total" .Devices.Clicks}}</p>
+<table>
+<caption>{{t "devices.caption"}}</caption>
+<thead>
+<tr><th scope="col">{{t "devices.device"}}</th><th scope="col" class="count">{{t "metric.estimated_human_clicks"}}</th><th scope="col">{{t "breakdown.share"}}</th></tr>
+</thead>
+<tbody>
+{{range .Devices.Rows -}}
+<tr><th scope="row">{{t .NameKey}}</th><td class="count">{{number .Clicks}}</td><td class="share"><svg class="bar" width="120" height="10" aria-hidden="true" focusable="false"><rect class="bar-fill" width="{{.PercentOfMost}}%" height="100%" rx="2"/></svg> {{percent .Clicks $.Devices.Clicks}}</td></tr>
+{{end -}}
+</tbody>
+</table>
+{{- else -}}
+<p>{{t "breakdown.empty" "days" .Days}}</p>
+{{- end}}
+<p class="definition">{{t "devices.definition"}}</p>
+</section>
+
+<section aria-labelledby="browsers-title">
+<h2 id="browsers-title">{{t "browsers.title"}}</h2>
+{{if .Browsers.Rows -}}
+<p>{{t "breakdown.summary" "name" (t .Browsers.Top.NameKey) "clicks" (plural "count.clicks" .Browsers.Top.Clicks) "total" .Browsers.Clicks}}</p>
+<table>
+<caption>{{t "browsers.caption"}}</caption>
+<thead>
+<tr><th scope="col">{{t "browsers.browser"}}</th><th scope="col" class="count">{{t "metric.estimated_human_clicks"}}</th><th scope="col">{{t "breakdown.share"}}</th></tr>
+</thead>
+<tbody>
+{{range .Browsers.Rows -}}
+<tr><th scope="row">{{t .NameKey}}</th><td class="count">{{number .Clicks}}</td><td class="share"><svg class="bar" width="120" height="10" aria-hidden="true" focusable="false"><rect class="bar-fill" width="{{.PercentOfMost}}%" height="100%" rx="2"/></svg> {{percent .Clicks $.Browsers.Clicks}}</td></tr>
+{{end -}}
+</tbody>
+</table>
+{{- else -}}
+<p>{{t "breakdown.empty" "days" .Days}}</p>
+{{- end}}
+<p class="definition">{{t "browsers.definition"}}</p>
 </section>
 {{- end}}
