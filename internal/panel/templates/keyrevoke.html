@@ -1,0 +1,9 @@
+{{define "title"}}{{t "revoke.title" "name" .Name}}{{end}}
+
+{{define "content" -}}
+<h1>{{t "revoke.title" "name" .Name}}</h1>
+<p>{{t "revoke.text"}}</p>
+<form method="post" action="{{.Action}}">
+<p class="actions"><button type="submit" class="danger">{{t "revoke.confirm"}}</button> <a href="{{.Keep}}">{{t "revoke.keep"}}</a></p>
+</form>
+{{- end}}

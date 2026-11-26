@@ -71,9 +71,10 @@ func runAPI(ctx context.Context, getenv func(string) string, logger *slog.Logger
 	// Built before anything listens: a server that does not serve exactly
 	// its contract does not start.
 	links, inbox, aggregates := link.NewStore(pool, redirectDomain, rand.Reader), ingest.NewStore(pool, logger), rollup.NewReader(pool)
+	keys := auth.NewKeys(pool, rand.Reader)
 	handler, err := api.New(ctx, api.Settings{
 		Logger:         logger,
-		Keys:           auth.NewKeys(pool, rand.Reader),
+		Keys:           keys,
 		TrustedProxies: proxies,
 		Links:          links,
 		Inbox:          inbox,
@@ -88,6 +89,7 @@ func runAPI(ctx context.Context, getenv func(string) string, logger *slog.Logger
 		Inbox:          inbox,
 		Aggregates:     aggregates,
 		Sessions:       auth.NewSessions(pool, rand.Reader),
+		Keys:           keys,
 		Cookie:         cookie,
 		TrustedProxies: proxies,
 	})

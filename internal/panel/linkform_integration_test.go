@@ -188,7 +188,7 @@ func TestWhatIsWrongWithAFormIsSaidNextToItsField(t *testing.T) {
 			}
 			wants := map[string]string{
 				"that the page is of an error":    "<title>" + s.text(t, lang, "form.error_mark") + " " + s.text(t, lang, "form.new.title") + " · Corinto</title>",
-				"how many problems there are":     `<h2 id="problems-title">` + escaped(mustPlural(t, s, lang, "form.problems", 1)) + `</h2>`,
+				"how many problems there are":     `<h2 id="problems-title">` + escaped(counted(t, s, lang, 1)) + `</h2>`,
 				"the summary, where it is heard":  `<div class="problems" role="alert" aria-labelledby="problems-title">`,
 				"the form, to be sent again":      `<form method="post" action="/` + string(lang) + `/links" novalidate>`,
 				"the heading of the form as ever": "<h1>" + s.text(t, lang, "form.new.title") + "</h1>",
@@ -227,7 +227,7 @@ func TestWhatIsWrongWithAFormIsSaidNextToItsField(t *testing.T) {
 	answer := s.send(t, inside, "/en/links", url.Values{"expires_at": {"2020-01-01T00:00"}})
 	page := answer.Body.String()
 	for _, want := range []string{
-		escaped(mustPlural(t, s, english, "form.problems", 2)),
+		escaped(counted(t, s, english, 2)),
 		`<p class="error" id="destination-error">` + s.text(t, english, "error.destination.required") + `</p>`,
 		`<p class="error" id="expires_at-error">` + s.text(t, english, "error.expires_at.past") + `</p>`,
 	} {
@@ -240,10 +240,10 @@ func TestWhatIsWrongWithAFormIsSaidNextToItsField(t *testing.T) {
 	}
 }
 
-// mustPlural returns a text that counts, as a page writes it.
-func mustPlural(t *testing.T, s *stage, lang language, key string, n int64) string {
+// counted returns the text that says how many problems a form has.
+func counted(t *testing.T, s *stage, lang language, n int64) string {
 	t.Helper()
-	found, err := s.texts.plural(lang, key, n)
+	found, err := s.texts.plural(lang, "form.problems", n)
 	if err != nil {
 		t.Fatal(err)
 	}

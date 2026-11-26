@@ -52,6 +52,9 @@ type Settings struct {
 	Aggregates *rollup.Reader
 	// Sessions says who a request acts as.
 	Sessions *auth.Sessions
+	// Keys are the keys of the API, which a workspace issues and revokes
+	// in its panel.
+	Keys *auth.Keys
 	// Cookie is the form of the session cookie, which the installation
 	// chooses.
 	Cookie CookieForm
@@ -70,6 +73,10 @@ const (
 	pageLink       = "link.html"
 	pageLinkForm   = "linkform.html"
 	pageLinkDelete = "linkdelete.html"
+	pageKeys       = "keys.html"
+	pageKeyForm    = "keyform.html"
+	pageKeyIssued  = "keyissued.html"
+	pageKeyRevoke  = "keyrevoke.html"
 	pageNotFound   = "notfound.html"
 	pageFailed     = "failed.html"
 	pageRefused    = "refused.html"
@@ -80,6 +87,7 @@ const (
 
 var pages = []string{
 	pageEntry, pageLinks, pageLink, pageLinkForm, pageLinkDelete,
+	pageKeys, pageKeyForm, pageKeyIssued, pageKeyRevoke,
 	pageNotFound, pageFailed, pageRefused, pageLimited, pageBusy, pageInsecure,
 }
 
@@ -175,6 +183,11 @@ func (p *panel) handler() http.Handler {
 		mux.HandleFunc("POST "+door+"links/{id}/enable", p.changing(lang, p.switchLink(lang, (*link.Store).Enable)))
 		mux.HandleFunc("GET "+door+"links/{id}/delete", p.inside(lang, p.deleteLinkPage(lang)))
 		mux.HandleFunc("POST "+door+"links/{id}/delete", p.changing(lang, p.deleteLink(lang)))
+		mux.HandleFunc("GET "+door+"keys", p.inside(lang, p.keysPage(lang)))
+		mux.HandleFunc("POST "+door+"keys", p.changing(lang, p.issueKey(lang)))
+		mux.HandleFunc("GET "+door+"keys/new", p.inside(lang, p.newKeyPage(lang)))
+		mux.HandleFunc("GET "+door+"keys/{id}/revoke", p.inside(lang, p.revokeKeyPage(lang)))
+		mux.HandleFunc("POST "+door+"keys/{id}/revoke", p.changing(lang, p.revokeKey(lang)))
 	}
 	// Every other path and every other method: there is no page there.
 	mux.HandleFunc("/", p.notFound)
@@ -340,10 +353,18 @@ type view struct {
 	// Home is the door of the panel in the language of the page.
 	Home string
 	// Workspace is the name of the workspace the request acts in, or empty
-	// when it acts in none. Links is where its links are listed, and Leave
-	// where its session is closed.
-	Workspace    string
-	Links, Leave string
+	// when it acts in none.
+	Workspace string
+	// Bar is where the bar of a page behind a session leads. It is a field
+	// of its own: a page that shows its links or its keys under those
+	// names would otherwise take the place of where the bar leads.
+	Bar bar
+}
+
+// bar is where the bar of a page behind a session leads: the links of the
+// workspace, its keys, and where its session is closed.
+type bar struct {
+	Links, Keys, Leave string
 }
 
 // viewOf returns what every page of a request is rendered with. The other
@@ -363,7 +384,7 @@ func (p *panel) viewOf(r *http.Request, lang language) view {
 	return view{
 		Lang: lang, Other: other, OtherPath: "/" + string(other) + rest,
 		OtherName: p.texts.plain(other, "language.name"), Stylesheet: p.stylesheetPath,
-		Home: door, Links: door + "links", Leave: door + "logout",
+		Home: door, Bar: bar{Links: door + "links", Keys: door + "keys", Leave: door + "logout"},
 	}
 }
 

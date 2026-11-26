@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/majimtor/corinto/contract"
+	"github.com/majimtor/corinto/internal/auth"
 	"github.com/majimtor/corinto/internal/classify"
 	"github.com/majimtor/corinto/internal/link"
 )
@@ -134,6 +136,73 @@ func TestTheCataloguesNameEveryDeviceAndEveryBrowser(t *testing.T) {
 	}
 }
 
+// The form of a key offers the scopes that an operation of the contract
+// asks for, and no other: a scope that nothing asks for yet would be a box
+// that does nothing. Each has its text in both catalogues, and so has each
+// state of a key; the catalogues have no other of either.
+func TestTheFormOfAKeyOffersTheScopesTheContractAsksFor(t *testing.T) {
+	document, err := contract.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var required []auth.Scope
+	for _, path := range document.Paths.Map() {
+		for _, operation := range path.Operations() {
+			if operation.Security == nil {
+				continue
+			}
+			for _, alternative := range *operation.Security {
+				for _, scopes := range alternative {
+					for _, scope := range scopes {
+						required = append(required, auth.Scope(scope))
+					}
+				}
+			}
+		}
+	}
+	slices.Sort(required)
+	required = slices.Compact(required)
+	if len(required) == 0 {
+		t.Fatal("no operation of the contract asks for a scope")
+	}
+	if offered := slices.Sorted(slices.Values(offeredScopes)); !slices.Equal(offered, required) {
+		t.Errorf("the form of a key offers %v, and the operations of the contract ask for %v", offered, required)
+	}
+
+	texts, err := readCatalogs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.November, 19, 12, 0, 0, 0, time.UTC)
+	past, future := now.Add(-time.Second), now.Add(time.Second)
+	asked := map[string]bool{
+		keyState(auth.Key{}, now): true, keyState(auth.Key{ExpiresAt: &past}, now): true,
+	}
+	// A key expires at its moment, like a link: not a second later.
+	if keyState(auth.Key{ExpiresAt: &now}, now) != keyState(auth.Key{ExpiresAt: &past}, now) ||
+		keyState(auth.Key{ExpiresAt: &future}, now) != keyState(auth.Key{}, now) || len(asked) != 2 {
+		t.Errorf("the states of a key are %v, and one at its moment or before it is not said as one whose time is up", asked)
+	}
+	for _, scope := range offeredScopes {
+		if !slices.Contains(auth.Scopes(), scope) || asked[scopeKey(scope)] {
+			t.Errorf("the form offers %q, which is not a scope, or offers it twice", scope)
+		}
+		asked[scopeKey(scope)] = true
+	}
+	for _, lang := range languages {
+		for key := range asked {
+			if found, ok := texts[lang][key]; !ok || found.counts {
+				t.Errorf("the catalogue of %q lacks %q, which the code asks for, or has it as a text that counts", lang, key)
+			}
+		}
+		for key := range texts[lang] {
+			if (strings.HasPrefix(key, "scope.") || strings.HasPrefix(key, "key.state.")) && !asked[key] {
+				t.Errorf("the catalogue of %q has %q, which nothing asks for", lang, key)
+			}
+		}
+	}
+}
+
 func TestATextThatNoCatalogueHasIsAnErrorAndOneOnlyInSpanishIsShownInSpanish(t *testing.T) {
 	texts := catalogs{
 		spanish: {"greeting": {other: "source {name}"}, "things": {one: "{n} unit", other: "{n} units", counts: true}, "format.thousands": {other: "."}},
@@ -244,7 +313,7 @@ func TestTheCataloguesSayEverythingThatCanBeWrongWithAForm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	asked := map[string]bool{keyDestinationRequired: true, keyExpiryInvalid: true, keyExpiryPast: true}
+	asked := map[string]bool{keyDestinationRequired: true, keyExpiryInvalid: true, keyExpiryPast: true, keyNameRequired: true, keyScopes: true}
 	fields := []string{fieldDestination, fieldAlias, fieldTitle, fieldTags, fieldCampaign, fieldExpiresAt, fieldForm}
 	rules := make(map[error]bool)
 	for _, known := range refusals {
@@ -254,6 +323,23 @@ func TestTheCataloguesSayEverythingThatCanBeWrongWithAForm(t *testing.T) {
 		asked[known.Key], rules[known.rule] = true, true
 		if !slices.Contains(fields, known.Field) || !strings.HasPrefix(known.Key, "error.") {
 			t.Errorf("what breaks the rule %q is said of the field %q with the text %q", known.rule, known.Field, known.Key)
+		}
+	}
+	// What the domain refuses of a key. A rule may be said by a text that
+	// the form also says by itself, such as an expiry that has passed.
+	keyFields := []string{fieldKeyName, fieldKeyScopes, fieldExpiresAt, fieldForm}
+	for _, known := range keyRefusals {
+		if rules[known.rule] {
+			t.Errorf("the rule %q is in a table twice", known.rule)
+		}
+		asked[known.Key], rules[known.rule] = true, true
+		if !slices.Contains(keyFields, known.Field) || !strings.HasPrefix(known.Key, "error.") {
+			t.Errorf("what breaks the rule %q is said of the field %q with the text %q", known.rule, known.Field, known.Key)
+		}
+	}
+	for _, rule := range []error{auth.ErrName, auth.ErrScopes, auth.ErrExpiry, auth.ErrQuotaExceeded} {
+		if !rules[rule] {
+			t.Errorf("nothing says what breaks the rule %q of a key", rule)
 		}
 	}
 	for _, lang := range languages {

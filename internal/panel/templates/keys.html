@@ -1,0 +1,26 @@
+{{define "title"}}{{t "keys.title"}}{{end}}
+
+{{define "content" -}}
+<h1>{{t "keys.title"}}</h1>
+<p>{{t "keys.intro"}}</p>
+<p class="actions"><a href="{{.New}}">{{t "keys.new"}}</a></p>
+{{if .Keys -}}
+<p id="keys-list">{{t "keys.caption"}}</p>
+<ul class="keys" aria-labelledby="keys-list">
+{{range .Keys}}<li>
+<h2>{{.Key.Name}}</h2>
+<dl class="facts">
+<div><dt>{{t "keys.identifier"}}</dt><dd class="address code">{{.Key.ID}}</dd></div>
+<div><dt>{{t "keys.scopes"}}</dt><dd><ul class="scopes">{{range .Key.Scopes}}<li><code>{{.}}</code></li>{{end}}</ul></dd></div>
+<div><dt>{{t "keys.state"}}</dt><dd>{{t .StateKey}}</dd></div>
+<div><dt>{{t "keys.created"}}</dt><dd>{{date .Key.CreatedAt}}</dd></div>
+<div><dt>{{t "keys.expires"}}</dt><dd>{{with .Key.ExpiresAt}}{{moment .}}{{else}}{{t "keys.no_expiry"}}{{end}}</dd></div>
+<div><dt>{{t "keys.last_used"}}</dt><dd>{{with .Key.LastUsedOn}}{{date .}}{{else}}{{t "keys.never_used"}}{{end}}</dd></div>
+</dl>
+<p class="actions"><a href="{{.Revoke}}" aria-label="{{t "keys.revoke_named" "name" .Key.Name}}">{{t "keys.revoke"}}</a></p>
+</li>
+{{end}}</ul>
+{{- else -}}
+<p>{{t "keys.empty"}}</p>
+{{- end}}
+{{- end}}

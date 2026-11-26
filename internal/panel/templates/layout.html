@@ -14,8 +14,9 @@
 {{if .Workspace -}}
 <nav class="session" aria-label="{{t "layout.session"}}">
 <p class="workspace">{{.Workspace}}</p>
-<a href="{{.Links}}">{{t "layout.links"}}</a>
-<form method="post" action="{{.Leave}}"><button type="submit">{{t "layout.leave"}}</button></form>
+<a href="{{.Bar.Links}}">{{t "layout.links"}}</a>
+<a href="{{.Bar.Keys}}">{{t "layout.keys"}}</a>
+<form method="post" action="{{.Bar.Leave}}"><button type="submit">{{t "layout.leave"}}</button></form>
 </nav>
 {{end -}}
 <p class="language"><a href="{{.OtherPath}}" hreflang="{{.Other}}" lang="{{.Other}}">{{.OtherName}}</a></p>
