@@ -195,3 +195,42 @@ func TestNumbersPluralsAndDaysFollowTheLanguage(t *testing.T) {
 		t.Errorf("the catalogues are of %v", got)
 	}
 }
+
+// What is wrong with a form is said by a text whose key the code holds, in
+// a table or a constant, and no test of the templates can see. Every one
+// of them is in both catalogues, and the catalogues have no other.
+func TestTheCataloguesSayEverythingThatCanBeWrongWithAForm(t *testing.T) {
+	texts, err := readCatalogs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked := map[string]bool{keyDestinationRequired: true, keyExpiryInvalid: true, keyExpiryPast: true}
+	fields := []string{fieldDestination, fieldAlias, fieldTitle, fieldTags, fieldCampaign, fieldExpiresAt, fieldForm}
+	rules := make(map[error]bool)
+	for _, known := range refusals {
+		if asked[known.Key] || rules[known.rule] {
+			t.Errorf("the rule %q, or the text %q, is in the table twice", known.rule, known.Key)
+		}
+		asked[known.Key], rules[known.rule] = true, true
+		if !slices.Contains(fields, known.Field) || !strings.HasPrefix(known.Key, "error.") {
+			t.Errorf("what breaks the rule %q is said of the field %q with the text %q", known.rule, known.Field, known.Key)
+		}
+	}
+	for _, lang := range languages {
+		for key := range asked {
+			if found, ok := texts[lang][key]; !ok || found.counts {
+				t.Errorf("the catalogue of %q lacks %q, which the code asks for, or has it as a text that counts", lang, key)
+			}
+		}
+		for key := range texts[lang] {
+			if strings.HasPrefix(key, "error.") && !asked[key] {
+				t.Errorf("the catalogue of %q has %q, which nothing asks for", lang, key)
+			}
+		}
+	}
+	// A problem of the form as a whole has no field for the page to lead
+	// to, and any other has.
+	if (problem{Field: fieldForm}).Linked() || !(problem{Field: fieldDestination}).Linked() {
+		t.Error("a problem of the whole form is linked to a field, or one of a field is not")
+	}
+}

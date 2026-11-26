@@ -65,17 +65,23 @@ type Settings struct {
 
 // The pages of the panel, by the file that holds each.
 const (
-	pageEntry    = "entry.html"
-	pageLinks    = "links.html"
-	pageLink     = "link.html"
-	pageNotFound = "notfound.html"
-	pageFailed   = "failed.html"
-	pageRefused  = "refused.html"
-	pageLimited  = "limited.html"
-	pageInsecure = "insecure.html"
+	pageEntry      = "entry.html"
+	pageLinks      = "links.html"
+	pageLink       = "link.html"
+	pageLinkForm   = "linkform.html"
+	pageLinkDelete = "linkdelete.html"
+	pageNotFound   = "notfound.html"
+	pageFailed     = "failed.html"
+	pageRefused    = "refused.html"
+	pageLimited    = "limited.html"
+	pageBusy       = "busy.html"
+	pageInsecure   = "insecure.html"
 )
 
-var pages = []string{pageEntry, pageLinks, pageLink, pageNotFound, pageFailed, pageRefused, pageLimited, pageInsecure}
+var pages = []string{
+	pageEntry, pageLinks, pageLink, pageLinkForm, pageLinkDelete,
+	pageNotFound, pageFailed, pageRefused, pageLimited, pageBusy, pageInsecure,
+}
 
 // panel is the pages of the panel and what they are rendered from.
 type panel struct {
@@ -91,6 +97,8 @@ type panel struct {
 	// that addresses gives it and that cannot be turned back into one.
 	addresses *limits.Addresses
 	entries   *limits.Limiter
+	// writes counts the changes each session makes.
+	writes *limits.Limiter
 }
 
 // New returns the handler of the pages of the panel. It serves until ctx is
@@ -126,8 +134,10 @@ func newPanel(ctx context.Context, settings Settings) (*panel, error) {
 		stylesheetPath: "/assets/panel-" + hex.EncodeToString(hash[:8]) + ".css",
 		addresses:      addresses,
 		entries:        limits.NewLimiter(limits.DemoEntriesPerMinute, time.Minute, limits.DemoEntriesPerMinute, settings.Now),
+		writes:         limits.NewLimiter(limits.APIWritesPerMinute, time.Minute, limits.APIWritesPerMinute, settings.Now),
 	}
 	go served.entries.Sweep(ctx)
+	go served.writes.Sweep(ctx)
 	for _, lang := range languages {
 		served.pages[lang] = make(map[string]*template.Template)
 		for _, page := range pages {
@@ -156,7 +166,15 @@ func (p *panel) handler() http.Handler {
 		mux.HandleFunc("POST "+door+"session", p.enter(lang))
 		mux.HandleFunc("POST "+door+"logout", p.leave(lang))
 		mux.HandleFunc("GET "+door+"links", p.inside(lang, p.linksPage(lang)))
+		mux.HandleFunc("POST "+door+"links", p.changing(lang, p.createLink(lang)))
+		mux.HandleFunc("GET "+door+"links/new", p.inside(lang, p.newLinkPage(lang)))
 		mux.HandleFunc("GET "+door+"links/{id}", p.inside(lang, p.linkPage(lang)))
+		mux.HandleFunc("POST "+door+"links/{id}", p.changing(lang, p.updateLink(lang)))
+		mux.HandleFunc("GET "+door+"links/{id}/edit", p.inside(lang, p.editLinkPage(lang)))
+		mux.HandleFunc("POST "+door+"links/{id}/disable", p.changing(lang, p.switchLink(lang, (*link.Store).Disable)))
+		mux.HandleFunc("POST "+door+"links/{id}/enable", p.changing(lang, p.switchLink(lang, (*link.Store).Enable)))
+		mux.HandleFunc("GET "+door+"links/{id}/delete", p.inside(lang, p.deleteLinkPage(lang)))
+		mux.HandleFunc("POST "+door+"links/{id}/delete", p.changing(lang, p.deleteLink(lang)))
 	}
 	// Every other path and every other method: there is no page there.
 	mux.HandleFunc("/", p.notFound)

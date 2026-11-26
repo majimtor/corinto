@@ -401,6 +401,7 @@ Initial limits:
 | --- | --- |
 | Redirect, per client address | 20 per second sustained, burst of 40; then `429` |
 | API, per key | 120 requests a minute; 60 writes a minute |
+| Panel, per session | 60 changes a minute |
 | Demo entry, per address | 10 sessions a minute |
 | Failed key authentications, per client address | 10 a minute; then `429` |
 | Webhook reception, per source | 600 a minute |

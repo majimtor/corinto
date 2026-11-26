@@ -2,8 +2,8 @@
    from nowhere else: the content security policy allows no inline style. */
 
 /* One colour scheme, light. Each colour is checked against the surface: the
-   two inks and the link for text (4.5:1), the two series and the axis for
-   graphics (3:1). The grid is under that on purpose: it helps to read a
+   two inks, the link and the colour of what is wrong for text (4.5:1), the
+   two series and the axis for graphics (3:1). The grid is under that on purpose: it helps to read a
    value and says nothing by itself. */
 :root {
   --surface: #fcfcfb;
@@ -15,6 +15,7 @@
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --notice: #fff3cf;
+  --critical: #b3261e;
 }
 
 * {
@@ -386,4 +387,131 @@ button:hover {
   .links .leads {
     display: none;
   }
+}
+
+/* What a page lets its reader do: links and buttons in a row, which wraps
+   on a narrow screen. A form with one button sits in the row like a link. */
+.actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin: 1rem 0;
+}
+
+.actions form {
+  margin: 0;
+}
+
+.actions a {
+  display: inline-block;
+  min-height: 1.5rem;
+  padding: 0.25rem 0;
+}
+
+/* The button a page is for, and the one that cannot be taken back. Each
+   says what it does in its words: the colour only tells them apart. */
+button.primary {
+  background: var(--link);
+  border-color: var(--link);
+  color: var(--surface);
+  font-weight: 600;
+  min-height: 2.75rem;
+  padding: 0.5rem 1.25rem;
+}
+
+button.danger {
+  background: var(--critical);
+  border-color: var(--critical);
+  color: var(--surface);
+  font-weight: 600;
+  min-height: 2.75rem;
+  padding: 0.5rem 1.25rem;
+}
+
+button.primary:focus-visible,
+button.danger:focus-visible {
+  outline-color: var(--ink);
+}
+
+/* A form: one field under another, each with its label, what it is for
+   and, when something is wrong with it, what. */
+.field {
+  margin: 1.25rem 0;
+}
+
+label,
+legend {
+  display: block;
+  font-weight: 600;
+}
+
+.hint {
+  color: var(--ink-soft);
+  font-size: 0.9375rem;
+  margin: 0.125rem 0 0.25rem;
+}
+
+ul.hint {
+  padding-left: 1.25rem;
+}
+
+input {
+  background: var(--surface);
+  border: 1px solid var(--ink-soft);
+  border-radius: 6px;
+  color: var(--ink);
+  font: inherit;
+  max-width: 100%;
+  min-height: 2.75rem;
+  padding: 0.375rem 0.625rem;
+  width: 100%;
+}
+
+input[type="datetime-local"] {
+  width: auto;
+}
+
+fieldset {
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+  margin: 1.5rem 0;
+  min-width: 0;
+  padding: 0.25rem 1rem 0.5rem;
+}
+
+legend {
+  padding: 0 0.375rem;
+}
+
+/* What is wrong is said in words, next to its field and at the top of the
+   page; the colour and the edge are there to find it by. */
+.error {
+  border-left: 4px solid var(--critical);
+  color: var(--critical);
+  font-weight: 600;
+  margin: 0.25rem 0;
+  padding-left: 0.5rem;
+}
+
+input[aria-invalid="true"] {
+  border-color: var(--critical);
+  border-width: 2px;
+}
+
+.problems {
+  border: 2px solid var(--critical);
+  border-radius: 6px;
+  margin: 1rem 0 1.5rem;
+  padding: 0.25rem 1rem 0.5rem;
+}
+
+.problems h2 {
+  margin-top: 0.5rem;
+}
+
+.problems a {
+  display: inline-block;
+  min-height: 1.5rem;
+  padding: 0.125rem 0;
 }

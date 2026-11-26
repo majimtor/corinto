@@ -119,7 +119,8 @@ a secret.
 - The links: their destinations, campaign parameters, titles and tags.
 - The address a request to the API or to the demo entry of the panel
   comes from is treated like the address of a visitor: a rate-limit key in
-  memory, and nothing else.
+  memory, and nothing else. The changes a session of the panel makes are
+  counted in memory too, by the identifier of the session, for a minute.
 - A session of the panel is one cookie, `__Host-session`, or `session` in
   the local run. It holds a random token that names the session and
   nothing else, a script cannot read it, it goes back only to the host

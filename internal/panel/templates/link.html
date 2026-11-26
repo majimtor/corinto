@@ -8,6 +8,14 @@
 <div><dt>{{t "link.destination"}}</dt><dd class="address">{{.Link.Resolved}}</dd></div>
 <div><dt>{{t "link.state"}}</dt><dd>{{t .StateKey}}</dd></div>
 </dl>
+{{if .Blocked}}<p class="notice">{{t "error.blocked"}}</p>{{end}}
+<nav class="actions" aria-label="{{t "link.actions"}}">
+{{if not .Blocked -}}
+<a href="{{.Edit}}">{{t "link.edit"}}</a>
+<form method="post" action="{{.Switch}}"><button type="submit">{{if .Disabled}}{{t "link.enable"}}{{else}}{{t "link.disable"}}{{end}}</button></form>
+{{end -}}
+<a href="{{.Delete}}">{{t "link.delete"}}</a>
+</nav>
 
 <section aria-labelledby="period">
 <h2 id="period">{{t "link.period" "days" .Days "first" (date .First) "last" (date .Last)}}</h2>

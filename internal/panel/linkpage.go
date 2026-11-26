@@ -33,6 +33,12 @@ type linkView struct {
 	StateKey string
 	// Demo says that the traffic of the workspace is generated.
 	Demo bool
+	// Edit and Delete are where the link is changed and where it is
+	// deleted. Switch is where its state is changed, to disabled or back,
+	// and Disabled says which of the two it does. A link the operator
+	// blocked can only be deleted: Blocked says so.
+	Edit, Delete, Switch string
+	Disabled, Blocked    bool
 
 	// The period: how many days, the first and the last.
 	Days        int
@@ -121,6 +127,12 @@ func (p *panel) linkPage(lang language) func(http.ResponseWriter, *http.Request,
 		}
 		if shown.Name == "" {
 			shown.Name = found.Identifier
+		}
+		page := "/" + string(lang) + "/links/" + found.ID
+		shown.Edit, shown.Delete, shown.Switch = page+"/edit", page+"/delete", page+"/disable"
+		shown.Disabled, shown.Blocked = found.State == link.StateDisabled, found.State == link.StateBlocked
+		if shown.Disabled {
+			shown.Switch = page + "/enable"
 		}
 
 		// How far the events are processed is read before any figure, as
