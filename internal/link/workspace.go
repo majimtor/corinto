@@ -123,15 +123,35 @@ func LockWorkspace(ctx context.Context, tx pgx.Tx, workspaceID string) (Workspac
 	if !ok {
 		return Workspace{}, ErrWorkspaceNotFound
 	}
+	return scanWorkspace(tx.QueryRow(ctx,
+		`SELECT `+workspaceColumns+` FROM workspaces WHERE id = $1 FOR UPDATE`, id))
+}
+
+// Workspace reads an active workspace, and holds nothing. It is for
+// whoever shows a workspace; whatever is created in one goes through
+// LockWorkspace. A workspace that does not exist and one that is blocked
+// are the same errors as there.
+func (s *Store) Workspace(ctx context.Context, workspaceID string) (Workspace, error) {
+	id, ok := parseID(workspaceID)
+	if !ok {
+		return Workspace{}, ErrWorkspaceNotFound
+	}
+	return scanWorkspace(s.pool.QueryRow(ctx, `SELECT `+workspaceColumns+` FROM workspaces WHERE id = $1`, id))
+}
+
+// workspaceColumns are the columns scanWorkspace reads, in its order.
+const workspaceColumns = `id, name, state, demo, may_choose_aliases, allowed_destinations, max_links, max_keys`
+
+// scanWorkspace reads a workspace from a row of workspaceColumns. No row
+// is a workspace that does not exist, and a row of a blocked workspace is
+// an error too: nothing reads a blocked workspace to act in it.
+func scanWorkspace(row pgx.Row) (Workspace, error) {
 	var (
 		workspace Workspace
 		state     string
 		allowlist []byte
 	)
-	err := tx.QueryRow(ctx,
-		`SELECT id, name, state, demo, may_choose_aliases, allowed_destinations, max_links, max_keys
-		   FROM workspaces WHERE id = $1 FOR UPDATE`, id,
-	).Scan(&workspace.ID, &workspace.Name, &state, &workspace.Demo, &workspace.MayChooseAliases,
+	err := row.Scan(&workspace.ID, &workspace.Name, &state, &workspace.Demo, &workspace.MayChooseAliases,
 		&allowlist, &workspace.MaxLinks, &workspace.MaxKeys)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Workspace{}, ErrWorkspaceNotFound

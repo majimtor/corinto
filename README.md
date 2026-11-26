@@ -12,8 +12,10 @@ for what they measure, and signed webhooks in both directions.
 
 The first slice is built: links, their redirect, an event for each access
 and the figures the events add up to, all of it through the API. The panel
-and the webhooks are the next slices (PLAN.md section 18), so for now the
-tour is a handful of commands.
+is the slice in progress: it has a door into the demo workspaces, the list
+of their links and the page of each, and it changes nothing yet. The
+webhooks come after it (PLAN.md section 18), so for now the tour is a
+handful of commands.
 
 Without installing anything,
 [a codespace](https://codespaces.new/majimtor/corinto) has the system
@@ -99,7 +101,8 @@ curl --silent $api/v1/ingestion --header "Authorization: Bearer $key"
 ## Run it
 
 One command starts PostgreSQL 18, applies the migrations and starts three
-processes: `api`, which serves the management API on port 8080,
+processes: `api`, which serves the management API and the panel on port
+8080,
 `redirect`, which answers on the host of the short links on port 8082, and
 `worker`, which adds what `redirect` serves to the figures of each link.
 Their health endpoints are on ports 8081, 8083 and 8084. The first start
@@ -117,8 +120,10 @@ Then `http://127.0.0.1:8081/readyz` answers `ready`,
 with the operations it has so far. With a key of the seed in the
 `Authorization` header, as `Bearer` and the key,
 `http://127.0.0.1:8080/v1/links` lists the links of its workspace, and
-`http://127.0.0.1:8082/spring-reading` is one of them. `make seed` deletes
-the demo workspaces and creates them again, with new keys.
+`http://127.0.0.1:8082/spring-reading` is one of them. In a browser,
+`http://127.0.0.1:8080/` is the panel, which enters either demo workspace
+without a secret. `make seed` deletes the demo workspaces and creates them
+again, with new keys.
 
 The command needs
 Docker, `make` and `curl`. It generates the database password of the stack

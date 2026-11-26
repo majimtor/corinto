@@ -39,7 +39,7 @@ up: deploy/.env
 		--retry 30 --retry-delay 1 --retry-all-errors $(REDIRECT_HEALTH_URL)/readyz
 	@curl --silent --show-error --fail --output /dev/null \
 		--retry 30 --retry-delay 1 --retry-all-errors $(WORKER_HEALTH_URL)/readyz
-	@echo "corinto is up; the API on $(API_URL), short links on $(REDIRECT_URL)"
+	@echo "corinto is up; the panel and the API on $(API_URL), short links on $(REDIRECT_URL)"
 	@echo "health endpoints on $(HEALTH_URL), $(REDIRECT_HEALTH_URL) and $(WORKER_HEALTH_URL)"
 	@echo "the demo workspaces, with the key of each when this start seeded them:"
 	@$(COMPOSE) exec --no-TTY api /corinto seed --if-missing

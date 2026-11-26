@@ -1,0 +1,19 @@
+{{define "title"}}{{t "entry.title"}}{{end}}
+
+{{define "content" -}}
+<h1>{{t "entry.title"}}</h1>
+<p>{{t "entry.intro"}}</p>
+{{if .Demos -}}
+<ul class="doors">
+{{range .Demos}}<li>
+<form method="post" action="{{$.Enter}}">
+<input type="hidden" name="workspace" value="{{.ID}}">
+<button type="submit">{{t "entry.enter" "name" .Name}}</button>
+</form>
+</li>
+{{end}}</ul>
+<p>{{t "entry.cookie"}}</p>
+{{- else -}}
+<p>{{t "entry.none"}}</p>
+{{- end}}
+{{- end}}

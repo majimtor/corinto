@@ -80,7 +80,7 @@ func TestMigrateThenTheAPIStartsAndIsReady(t *testing.T) {
 		"/v1/health":       http.StatusOK,
 		"/v1/openapi.yaml": http.StatusOK,
 		"/v1/nothing":      http.StatusNotFound,
-		"/readyz":          http.StatusNotFound,
+		"/v1":              http.StatusNotFound,
 	} {
 		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, apiURL+path, nil)
 		if err != nil {
@@ -94,6 +94,11 @@ func TestMigrateThenTheAPIStartsAndIsReady(t *testing.T) {
 		if response.StatusCode != want {
 			t.Errorf("GET %s on the port of the API = %d, want %d", path, response.StatusCode, want)
 		}
+	}
+	// The probes are not on that port: outside the API it serves the panel,
+	// which has no such page.
+	if got := status(t, apiURL+"/readyz"); got != http.StatusNotFound {
+		t.Errorf("/readyz on the port of the API = %d, want %d", got, http.StatusNotFound)
 	}
 	// And the port of the probes does not serve the API.
 	if got := status(t, "http://"+addr+"/v1/health"); got != http.StatusNotFound {

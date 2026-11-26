@@ -3,13 +3,15 @@
 package panel
 
 import (
-	"context"
+	"bytes"
 	"crypto/rand"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"uuid"
@@ -43,13 +45,62 @@ func daysAgo(days int) time.Time {
 // needs to prepare what a page shows. Its helpers are the ones of the
 // tests of the API, written again: the two packages share no test code.
 type stage struct {
-	handler http.Handler
-	pool    *pgxpool.Pool
-	store   *link.Store
-	texts   catalogs
+	handler  http.Handler
+	served   *panel
+	pool     *pgxpool.Pool
+	store    *link.Store
+	sessions *auth.Sessions
+	texts    catalogs
+	// log is what the panel logged, and clock the time its pages are
+	// asked at, which a test moves.
+	log   *lockedLog
+	clock *clock
 }
 
+// lockedLog is a log that requests write while a test reads.
+type lockedLog struct {
+	mu      sync.Mutex
+	written bytes.Buffer
+}
+
+func (l *lockedLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.written.Write(p)
+}
+
+func (l *lockedLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.written.String()
+}
+
+// clock is a time that stands still until a test moves it.
+type clock struct {
+	mu sync.Mutex
+	at time.Time
+}
+
+func (c *clock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.at
+}
+
+func (c *clock) advance(by time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.at = c.at.Add(by)
+}
+
+// newStage returns the panel of an installation a browser reaches over
+// HTTPS, which is what most tests ask their pages of.
 func newStage(t *testing.T) *stage {
+	t.Helper()
+	return newStageWith(t, CookieSecure)
+}
+
+func newStageWith(t *testing.T, form CookieForm) *stage {
 	t.Helper()
 	pool, err := pgxpool.New(t.Context(), postgrestest.NewDatabase(t))
 	if err != nil {
@@ -60,14 +111,19 @@ func newStage(t *testing.T) *stage {
 		t.Fatal(err)
 	}
 	quiet := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	built := &stage{pool: pool, store: link.NewStore(pool, redirectDomain, rand.Reader)}
-	built.handler, err = New(Settings{
-		Logger: quiet, Links: built.store, Inbox: ingest.NewStore(pool, quiet), Aggregates: rollup.NewReader(pool),
-		Now: func() time.Time { return today.Add(16 * time.Hour) },
+	built := &stage{
+		pool: pool, store: link.NewStore(pool, redirectDomain, rand.Reader), sessions: auth.NewSessions(pool, rand.Reader),
+		log: &lockedLog{}, clock: &clock{at: today.Add(16 * time.Hour)},
+	}
+	built.served, err = newPanel(t.Context(), Settings{
+		Logger: slog.New(slog.NewJSONHandler(built.log, nil)),
+		Links:  built.store, Inbox: ingest.NewStore(pool, quiet), Aggregates: rollup.NewReader(pool),
+		Sessions: built.sessions, Cookie: form, Now: built.clock.now,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	built.handler = built.served.handler()
 	if built.texts, err = readCatalogs(); err != nil {
 		t.Fatal(err)
 	}
@@ -151,27 +207,104 @@ func (s *stage) count(t *testing.T, events ...ingest.Event) {
 	}
 }
 
-// as returns the handler of the panel for requests that act in a
-// workspace. It stands where the session will: nothing else in the process
-// can say who a request to the panel acts as.
-func (s *stage) as(workspaceID string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		acting := context.WithValue(r.Context(), principalKey{}, auth.Principal{WorkspaceID: workspaceID})
-		s.handler.ServeHTTP(w, r.WithContext(acting))
-	})
-}
-
-// get asks the panel for a page as a workspace, or as nobody when the
-// workspace is empty.
-func (s *stage) get(t *testing.T, workspaceID, path string) *httptest.ResponseRecorder {
+// ask sends the panel a request, changed as a test says, and returns the
+// answer.
+func (s *stage) ask(t *testing.T, method, path string, changes ...func(*http.Request)) *httptest.ResponseRecorder {
 	t.Helper()
-	handler := s.handler
-	if workspaceID != "" {
-		handler = s.as(workspaceID)
+	request := httptest.NewRequestWithContext(t.Context(), method, path, nil)
+	for _, change := range changes {
+		change(request)
 	}
 	answer := httptest.NewRecorder()
-	handler.ServeHTTP(answer, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
+	s.handler.ServeHTTP(answer, request)
 	return answer
+}
+
+// carried returns a cookie as a browser sends it back: a name and a value,
+// which is all a request carries of one.
+func carried(name, value string) *http.Cookie {
+	return &http.Cookie{Name: name, Value: value} //nolint:gosec // The attributes of a cookie stay in the browser: a request has none.
+}
+
+// with gives a request a cookie.
+func with(cookie *http.Cookie) func(*http.Request) {
+	return func(r *http.Request) { r.AddCookie(cookie) }
+}
+
+// saying gives a request a header.
+func saying(name, value string) func(*http.Request) {
+	return func(r *http.Request) { r.Header.Set(name, value) }
+}
+
+// to names the host a request is sent to.
+func to(host string) func(*http.Request) {
+	return func(r *http.Request) { r.Host = host }
+}
+
+// from names the address a request comes from.
+func from(address string) func(*http.Request) {
+	return func(r *http.Request) { r.RemoteAddr = address }
+}
+
+// filled gives a request the form a page of the panel sends.
+func filled(fields url.Values) func(*http.Request) {
+	return func(r *http.Request) {
+		r.Body = io.NopCloser(strings.NewReader(fields.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+}
+
+// naming is the form of the demo entry: the workspace to enter.
+func naming(workspaceID string) func(*http.Request) {
+	return filled(url.Values{"workspace": {workspaceID}})
+}
+
+// sessionOf returns the cookie of a new session in a workspace. A session
+// opens in a demo workspace alone: for any other, one is opened in a demo
+// workspace made for it and its row is moved by hand.
+func (s *stage) sessionOf(t *testing.T, workspaceID string) *http.Cookie {
+	t.Helper()
+	entered, err := s.store.Workspace(t.Context(), workspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	door := workspaceID
+	if !entered.Demo {
+		door = s.workspace(t, true)
+	}
+	session, token, err := s.sessions.Open(t.Context(), door)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if door != workspaceID {
+		if _, err := s.pool.Exec(t.Context(), `UPDATE sessions SET workspace_id = $1::uuid WHERE id = $2::uuid`, workspaceID, session.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.pool.Exec(t.Context(), `DELETE FROM workspaces WHERE id = $1::uuid`, door); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return carried(s.served.cookieName(), token)
+}
+
+// get asks the panel for a page with a session in a workspace, or with
+// none when the workspace is empty.
+func (s *stage) get(t *testing.T, workspaceID, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	if workspaceID == "" {
+		return s.ask(t, http.MethodGet, path)
+	}
+	return s.ask(t, http.MethodGet, path, with(s.sessionOf(t, workspaceID)))
+}
+
+// held returns how many sessions the database holds.
+func (s *stage) held(t *testing.T) int {
+	t.Helper()
+	var rows int
+	if err := s.pool.QueryRow(t.Context(), `SELECT count(*) FROM sessions`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	return rows
 }
 
 // text returns a text of a catalogue, as a page escapes it.
@@ -312,8 +445,7 @@ func TestThePageEscapesWhatAWorkspaceWrote(t *testing.T) {
 }
 
 // One point of authorization (PLAN.md section 9): the link of another
-// workspace is answered like one that does not exist, and so is every
-// request that acts as nobody.
+// workspace is answered like one that does not exist.
 func TestALinkOfAnotherWorkspaceIsNotFound(t *testing.T) {
 	s := newStage(t)
 	owner, other := s.workspace(t, false), s.workspace(t, false)
@@ -335,7 +467,6 @@ func TestALinkOfAnotherWorkspaceIsNotFound(t *testing.T) {
 	}
 	for _, c := range []struct{ who, workspace, path string }{
 		{who: "another workspace", workspace: other, path: path},
-		{who: "nobody", path: path},
 		{who: "its workspace, by an identifier that is not one", workspace: owner, path: "/es/links/spring"},
 	} {
 		answer := s.get(t, c.workspace, c.path)
@@ -357,14 +488,35 @@ func TestEveryResponseCarriesItsSecurityHeaders(t *testing.T) {
 
 	answers := map[string]*httptest.ResponseRecorder{
 		"the page of a link":        page,
+		"the list of the links":     s.get(t, workspace, "/en/links"),
+		"the door":                  s.get(t, "", "/en/"),
 		"a link that is not there":  s.get(t, workspace, "/en/links/"+uuid.NewV7().String()),
 		"a path that is not a page": s.get(t, workspace, "/nothing/here"),
-		"the root":                  s.get(t, "", "/"),
+		"a path with a dot segment": s.get(t, "", "/en/../es/"),
+		"a form from another site":  s.ask(t, http.MethodPost, "/en/logout", saying("Sec-Fetch-Site", "cross-site")),
 		"the stylesheet":            s.get(t, "", stylesheetPath),
 	}
+	// What sends a request elsewhere has no body, and so no type.
+	redirects := map[string]*httptest.ResponseRecorder{
+		"the address with no language":   s.get(t, "", "/"),
+		"a page asked for by nobody":     s.get(t, "", "/en/links"),
+		"the door without its slash":     s.get(t, "", "/en"),
+		"leaving":                        s.ask(t, http.MethodPost, "/en/logout"),
+		"entering":                       s.ask(t, http.MethodPost, "/en/session", naming(s.workspace(t, true))),
+		"the door for whoever is inside": s.get(t, workspace, "/en/"),
+	}
+	for what, answer := range redirects {
+		if answer.Code < 300 || answer.Code > 399 || answer.Body.Len() != 0 || answer.Header().Get("Location") == "" ||
+			answer.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("%s = %d with %d bytes, to %q, Cache-Control %q; want a redirect with no body that no cache keeps",
+				what, answer.Code, answer.Body.Len(), answer.Header().Get("Location"), answer.Header().Get("Cache-Control"))
+		}
+		answers[what] = answer
+	}
 	// With the database gone, a page answers as a failure.
+	inside := s.sessionOf(t, workspace)
 	s.pool.Close()
-	failed := s.get(t, workspace, "/es/links/"+target.ID)
+	failed := s.ask(t, http.MethodGet, "/es/links/"+target.ID, with(inside))
 	if failed.Code != http.StatusInternalServerError || !strings.Contains(failed.Body.String(), "<h1>"+s.text(t, spanish, "failed.title")+"</h1>") {
 		t.Errorf("a page without its database = %d, without the page that says so", failed.Code)
 	}
@@ -378,9 +530,15 @@ func TestEveryResponseCarriesItsSecurityHeaders(t *testing.T) {
 		if header.Get("X-Content-Type-Options") != "nosniff" || header.Get("Referrer-Policy") != "no-referrer" {
 			t.Errorf("%s: X-Content-Type-Options = %q, Referrer-Policy = %q", what, header.Get("X-Content-Type-Options"), header.Get("Referrer-Policy"))
 		}
+		if header.Get("X-Request-Id") == "" {
+			t.Errorf("%s: no X-Request-Id", what)
+		}
 		kind, cache := "text/html; charset=utf-8", "no-store"
 		if what == "the stylesheet" {
 			kind, cache = "text/css; charset=utf-8", "public, max-age=31536000, immutable"
+		}
+		if _, sent := redirects[what]; sent {
+			kind = ""
 		}
 		if header.Get("Content-Type") != kind || header.Get("Cache-Control") != cache {
 			t.Errorf("%s: Content-Type = %q, Cache-Control = %q", what, header.Get("Content-Type"), header.Get("Cache-Control"))
@@ -396,7 +554,7 @@ func TestEveryResponseCarriesItsSecurityHeaders(t *testing.T) {
 	}
 	// A path of the panel that is not a page is said so in the language
 	// its first segment names, and in Spanish when it names none.
-	for path, lang := range map[string]language{"/en/nothing": english, "/en": english, "/es/nothing": spanish, "/nothing": spanish, "/english": spanish} {
+	for path, lang := range map[string]language{"/en/nothing": english, "/en/links/": english, "/es/nothing": spanish, "/nothing": spanish, "/english": spanish} {
 		answer := s.get(t, "", path)
 		if answer.Code != http.StatusNotFound || !strings.Contains(answer.Body.String(), `<html lang="`+string(lang)+`">`) {
 			t.Errorf("GET %s = %d, want the page of what is not found in %q", path, answer.Code, lang)

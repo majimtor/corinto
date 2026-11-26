@@ -177,7 +177,9 @@ h2 {
 
 /* The drawing takes the width of the page and is never narrower than what
    keeps its labels readable: on a narrow screen the rest of it is reached
-   by scrolling, with a finger or with the keyboard. */
+   by scrolling, with a finger or with the keyboard. The table of the
+   series, with a column for each figure, is reached the same way: the
+   page itself is never wider than the screen. */
 .scroll {
   overflow-x: auto;
 }
@@ -290,6 +292,98 @@ tbody th {
    each says nothing its number does not. */
 @media (max-width: 30rem) {
   .bar {
+    display: none;
+  }
+}
+
+/* The name of the product leads to the door of the panel. */
+.brand a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Who the pages are of, and the way out, in the bar of every page behind a
+   session. On a narrow screen the bar takes as many lines as it needs. */
+.top {
+  flex-wrap: wrap;
+  gap: 0 1rem;
+}
+
+.session {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-left: auto;
+}
+
+.session p {
+  margin: 0;
+}
+
+.workspace {
+  font-weight: 600;
+}
+
+.session a {
+  display: inline-block;
+  min-height: 1.5rem;
+  padding: 0.25rem 0;
+}
+
+/* A button looks like one and is as tall as a finger needs: 44 pixels for
+   the ones that enter a workspace, which are what the page is for. */
+button {
+  background: var(--surface);
+  border: 1px solid var(--ink-soft);
+  border-radius: 6px;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  min-height: 2rem;
+  padding: 0.25rem 0.75rem;
+}
+
+button:hover {
+  border-color: var(--ink);
+}
+
+.doors {
+  display: grid;
+  gap: 0.75rem;
+  list-style: none;
+  margin: 1.5rem 0;
+  padding: 0;
+}
+
+.doors button {
+  background: var(--link);
+  border-color: var(--link);
+  color: var(--surface);
+  font-weight: 600;
+  min-height: 2.75rem;
+  padding: 0.5rem 1.25rem;
+}
+
+.doors button:focus-visible {
+  outline-color: var(--ink);
+}
+
+/* A short link is short: where there is room it stays on one line. On a
+   narrow screen it breaks where it has to, and the list leaves out where
+   each link leads, which the page of the link says. */
+.short {
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 40.0625rem) {
+  .short {
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 40rem) {
+  .links .leads {
     display: none;
   }
 }

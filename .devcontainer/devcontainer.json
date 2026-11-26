@@ -10,13 +10,21 @@
   // that the stack is up whenever the editor is.
   "postStartCommand": "make up",
 
-  // The ports of the processes: the management API and the host of the
-  // short links, each with its /livez and /readyz next to it, and the
-  // /livez and /readyz of the worker.
+  // A browser reaches the panel of a codespace over HTTPS, through the
+  // address of its forwarded port, so the session cookie takes its form for
+  // HTTPS. deploy/compose.yaml reads the variable, and a local run leaves
+  // it unset.
+  "containerEnv": {
+    "CORINTO_SESSION_COOKIE": "secure"
+  },
+
+  // The ports of the processes: the management API with the panel and the
+  // host of the short links, each with its /livez and /readyz next to it,
+  // and the /livez and /readyz of the worker.
   "forwardPorts": [8080, 8081, 8082, 8083, 8084],
   "portsAttributes": {
     "8080": {
-      "label": "Management API",
+      "label": "Panel and management API",
       "onAutoForward": "silent"
     },
     "8081": {

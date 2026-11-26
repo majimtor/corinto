@@ -15,11 +15,13 @@ info:
     the code. `type` is always `about:blank`: the code is what identifies an
     error.
 
-    A request that matches no operation is answered `404` with the code
-    `not_found`, or `405` with the code `method_not_allowed` and the methods
-    of the path in `Allow`. A request whose declared body is larger than
-    16 kB is answered `413` with the code `payload_too_large` whatever its
-    path. All three are Problem Details.
+    The API is every path under `/v1/`. There, a request that matches no
+    operation is answered `404` with the code `not_found`, or `405` with
+    the code `method_not_allowed` and the methods of the path in `Allow`,
+    and a request whose declared body is larger than 16 kB is answered
+    `413` with the code `payload_too_large` whatever its path. All three
+    are Problem Details. On every other path the host serves the panel,
+    which is pages for a browser and no part of this contract.
 
     Every response carries `X-Request-Id`, which names the request in the
     logs of the server.
