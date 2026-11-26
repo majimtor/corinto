@@ -13,9 +13,9 @@ for what they measure, and signed webhooks in both directions.
 The first slice is built: links, their redirect, an event for each access
 and the figures the events add up to, all of it through the API. The panel
 is the slice in progress: it has a door into the demo workspaces, the list
-of their links and the page of each, with the figures of ninety days of
-synthetic traffic, and it changes nothing yet. The
-webhooks come after it (PLAN.md section 18), so for now the tour is a
+of their links, the page of each, with the figures of ninety days of
+synthetic traffic, and the forms that create, change and delete a link.
+The webhooks come after it (PLAN.md section 18), so for now the tour is a
 handful of commands.
 
 Without installing anything,

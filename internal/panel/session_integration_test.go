@@ -74,10 +74,11 @@ func sentTo(t *testing.T, what string, answer *httptest.ResponseRecorder, path s
 	}
 }
 
-// shows fails unless an answer is a page with a status and a heading.
-func (s *stage) shows(t *testing.T, what string, answer *httptest.ResponseRecorder, status int, lang language, heading string) {
+// shows fails unless an answer is a page with a status and a heading, which
+// is a text of the catalogue with its values.
+func (s *stage) shows(t *testing.T, what string, answer *httptest.ResponseRecorder, status int, lang language, heading string, pairs ...any) {
 	t.Helper()
-	if want := "<h1>" + s.text(t, lang, heading) + "</h1>"; answer.Code != status || !strings.Contains(answer.Body.String(), want) {
+	if want := "<h1>" + s.text(t, lang, heading, pairs...) + "</h1>"; answer.Code != status || !strings.Contains(answer.Body.String(), want) {
 		t.Errorf("%s = %d, want %d with the page that says %q", what, answer.Code, status, want)
 	}
 }

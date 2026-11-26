@@ -1,0 +1,66 @@
+{{define "heading"}}{{if .New}}{{t "form.new.title"}}{{else}}{{t "form.edit.title" "name" .Name}}{{end}}{{end}}
+
+{{define "title"}}{{if .Problems}}{{t "form.error_mark"}} {{end}}{{template "heading" .}}{{end}}
+
+{{define "content" -}}
+<h1>{{template "heading" .}}</h1>
+{{if .Problems -}}
+<div class="problems" role="alert" aria-labelledby="problems-title">
+<h2 id="problems-title">{{plural "form.problems" .Found}}</h2>
+<ul>
+{{range .Problems}}<li>{{if .Linked}}<a href="#{{.Field}}">{{t .Key}}</a>{{else}}{{t .Key}}{{end}}</li>
+{{end}}</ul>
+</div>
+{{end -}}
+<form method="post" action="{{.Action}}" novalidate>
+<div class="field">
+<label for="destination">{{t "form.destination.label"}}</label>
+<p class="hint" id="destination-hint">{{t "form.destination.hint"}}</p>
+{{if .Allowed -}}
+<p class="hint" id="destination-allowed">{{t "form.destination.allowed"}}</p>
+<ul class="hint">
+{{range .Allowed}}<li class="address">{{.}}</li>
+{{end}}</ul>
+{{end -}}
+{{with .Wrong.Destination}}<p class="error" id="destination-error">{{t .}}</p>{{end}}
+<input type="text" inputmode="url" id="destination" name="destination" value="{{.Values.Destination}}" required autocapitalize="none" spellcheck="false" autocomplete="off" aria-describedby="destination-hint{{if .Allowed}} destination-allowed{{end}}{{if .Wrong.Destination}} destination-error{{end}}"{{if .Wrong.Destination}} aria-invalid="true"{{end}}>
+</div>
+{{if .Aliases -}}
+<div class="field">
+<label for="alias">{{t "form.alias.label"}}</label>
+<p class="hint" id="alias-hint">{{t "form.alias.hint"}}</p>
+{{with .Wrong.Alias}}<p class="error" id="alias-error">{{t .}}</p>{{end}}
+<input type="text" id="alias" name="alias" value="{{.Values.Alias}}" autocapitalize="none" spellcheck="false" autocomplete="off" aria-describedby="alias-hint{{if .Wrong.Alias}} alias-error{{end}}"{{if .Wrong.Alias}} aria-invalid="true"{{end}}>
+</div>
+{{end -}}
+<div class="field">
+<label for="title">{{t "form.title.label"}}</label>
+<p class="hint" id="title-hint">{{t "form.title.hint"}}</p>
+{{with .Wrong.Title}}<p class="error" id="title-error">{{t .}}</p>{{end}}
+<input type="text" id="title" name="title" value="{{.Values.Title}}" autocomplete="off" aria-describedby="title-hint{{if .Wrong.Title}} title-error{{end}}"{{if .Wrong.Title}} aria-invalid="true"{{end}}>
+</div>
+<div class="field">
+<label for="tags">{{t "form.tags.label"}}</label>
+<p class="hint" id="tags-hint">{{t "form.tags.hint"}}</p>
+{{with .Wrong.Tags}}<p class="error" id="tags-error">{{t .}}</p>{{end}}
+<input type="text" id="tags" name="tags" value="{{.Values.Tags}}" autocapitalize="none" autocomplete="off" aria-describedby="tags-hint{{if .Wrong.Tags}} tags-error{{end}}"{{if .Wrong.Tags}} aria-invalid="true"{{end}}>
+</div>
+<fieldset id="campaign" aria-describedby="campaign-hint{{if .Wrong.Campaign}} campaign-error{{end}}">
+<legend>{{t "form.campaign.legend"}}</legend>
+<p class="hint" id="campaign-hint">{{t "form.campaign.hint"}}</p>
+{{with .Wrong.Campaign}}<p class="error" id="campaign-error">{{t .}}</p>{{end}}
+<div class="field"><label for="utm_source">{{t "form.campaign.source"}}</label><input type="text" id="utm_source" name="utm_source" value="{{.Values.Source}}" autocapitalize="none" spellcheck="false" autocomplete="off"></div>
+<div class="field"><label for="utm_medium">{{t "form.campaign.medium"}}</label><input type="text" id="utm_medium" name="utm_medium" value="{{.Values.Medium}}" autocapitalize="none" spellcheck="false" autocomplete="off"></div>
+<div class="field"><label for="utm_campaign">{{t "form.campaign.name"}}</label><input type="text" id="utm_campaign" name="utm_campaign" value="{{.Values.Campaign}}" autocapitalize="none" spellcheck="false" autocomplete="off"></div>
+<div class="field"><label for="utm_term">{{t "form.campaign.term"}}</label><input type="text" id="utm_term" name="utm_term" value="{{.Values.Term}}" autocapitalize="none" spellcheck="false" autocomplete="off"></div>
+<div class="field"><label for="utm_content">{{t "form.campaign.content"}}</label><input type="text" id="utm_content" name="utm_content" value="{{.Values.Content}}" autocapitalize="none" spellcheck="false" autocomplete="off"></div>
+</fieldset>
+<div class="field">
+<label for="expires_at">{{t "form.expires.label"}}</label>
+<p class="hint" id="expires_at-hint">{{t "form.expires.hint"}}</p>
+{{with .Wrong.ExpiresAt}}<p class="error" id="expires_at-error">{{t .}}</p>{{end}}
+<input type="datetime-local" id="expires_at" name="expires_at" value="{{.Values.ExpiresAt}}" aria-describedby="expires_at-hint{{if .Wrong.ExpiresAt}} expires_at-error{{end}}"{{if .Wrong.ExpiresAt}} aria-invalid="true"{{end}}>
+</div>
+<p class="actions"><button type="submit" class="primary">{{if .New}}{{t "form.create"}}{{else}}{{t "form.save"}}{{end}}</button> <a href="{{.Cancel}}">{{t "form.cancel"}}</a></p>
+</form>
+{{- end}}

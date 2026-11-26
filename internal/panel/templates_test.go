@@ -12,9 +12,10 @@ import (
 // language translates.
 var neutralWords = []string{"Corinto"}
 
-// The texts the code asks for by a key it puts together, and that no
-// template names: TestTheCataloguesNameEveryStateAndEveryMonth has them.
-var keysOfTheCode = []string{"format.", "month.", "link.state.", "language.name"}
+// The texts the code asks for by a key it puts together or holds in a
+// table, and that no template names: the tests of the catalogues have
+// them.
+var keysOfTheCode = []string{"format.", "month.", "link.state.", "language.name", "error."}
 
 // The attributes of an element whose value a person reads or hears.
 var attributesPeopleRead = regexp.MustCompile(`\s(alt|title|aria-label|aria-description|placeholder|label|summary|value)="([^"]*)"`)

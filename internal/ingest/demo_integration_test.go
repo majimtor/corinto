@@ -102,10 +102,11 @@ func TestAnEventOfADemoWorkspaceIsSetAsideAndTheReconciliationAddsUp(t *testing.
 	if _, err := s.pool.Exec(t.Context(), `UPDATE workspaces SET demo = true WHERE id = $1::uuid`, s.acme); err != nil {
 		t.Fatal(err)
 	}
-	// Two days ago, so that the reconciliation of the last days has it.
-	at := time.Now().UTC().Add(-48 * time.Hour)
+	// Two days ago, so that the reconciliation of the last days has it: a
+	// second of that day, and an access a part of a second into it.
+	at := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Second)
 	click := Event{
-		LinkID: s.acmeLink, WorkspaceID: s.acme, OccurredAt: at.Add(321 * time.Millisecond),
+		LinkID: s.acmeLink, WorkspaceID: s.acme, OccurredAt: at.Add(987 * time.Millisecond),
 		Outcome: OutcomeRedirected, Method: "GET", Classification: human,
 	}
 	reason := postgres.Refusal{Code: "23514", Constraint: "a_test"}
@@ -164,7 +165,7 @@ func TestAnEventOfADemoWorkspaceIsSetAsideAndTheReconciliationAddsUp(t *testing.
 		`SELECT count(*) FROM event_dead_letters
 		  WHERE id = $1::uuid AND workspace_id = $2::uuid AND link_id = $3::uuid AND class = 'presumed_human'
 		    AND reason_sqlstate = '23514' AND reason_constraint = 'a_test'
-		    AND occurred_at = date_trunc('second', $4::timestamptz) AND uuid_extract_timestamp(id) = occurred_at`,
+		    AND occurred_at = $4 AND uuid_extract_timestamp(id) = occurred_at`,
 		id, s.acme, s.acmeLink, at); rows != 1 || s.rows(t) != 0 {
 		t.Errorf("%d dead letters are the event that was set aside, and the inbox has %d events; want 1 and none", rows, s.rows(t))
 	}

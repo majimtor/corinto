@@ -16,8 +16,8 @@ type linksView struct {
 	view
 	Links []listedLink
 	// Next is where the links after these are listed, or empty on the last
-	// page.
-	Next string
+	// page, and New where one is created.
+	Next, New string
 }
 
 // listedLink is a row of the list: a link, what the page calls it, the key
@@ -45,7 +45,7 @@ func (p *panel) linksPage(lang language) func(http.ResponseWriter, *http.Request
 		}
 		now := p.settings.Now().UTC()
 		here := "/" + string(lang) + "/links"
-		shown := linksView{view: p.viewIn(r, lang, in), Links: make([]listedLink, len(found))}
+		shown := linksView{view: p.viewIn(r, lang, in), Links: make([]listedLink, len(found)), New: here + "/new"}
 		for i, one := range found {
 			name := one.Title
 			if name == "" {

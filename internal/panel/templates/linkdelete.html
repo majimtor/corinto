@@ -1,0 +1,9 @@
+{{define "title"}}{{t "delete.title" "name" .Name}}{{end}}
+
+{{define "content" -}}
+<h1>{{t "delete.title" "name" .Name}}</h1>
+<p>{{t "delete.text"}}</p>
+<form method="post" action="{{.Action}}">
+<p class="actions"><button type="submit" class="danger">{{t "delete.confirm"}}</button> <a href="{{.Keep}}">{{t "delete.keep"}}</a></p>
+</form>
+{{- end}}
