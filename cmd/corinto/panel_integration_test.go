@@ -8,9 +8,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/majimtor/corinto/contract/contracttest"
 	"github.com/majimtor/corinto/internal/postgres/postgrestest"
@@ -107,6 +110,18 @@ func TestTheAPIProcessServesThePanelAndNeitherReadsWhatTheOtherIsGiven(t *testin
 		t.Errorf("the list does not show the %d links of the workspace entered", len(seeded[0].Links))
 	}
 
+	// The page of the first link shows the history the seed wrote for it:
+	// thirty days of the series, and requests in the thousands.
+	address := regexp.MustCompile(`<a href="(/en/links/[0-9a-f-]+)">`).FindStringSubmatch(links.body)
+	if address == nil {
+		t.Fatal("the list names no link")
+	}
+	shown := ask(plain, http.MethodGet, address[1], nil, session)
+	page("the page of the first link", shown, http.StatusOK)
+	if strings.Count(shown.body, "<time datetime=") != 30 || !regexp.MustCompile(`<dd class="value">\d,\d{3}</dd>`).MatchString(shown.body) {
+		t.Error("the page of the first link does not show thirty days with thousands of requests")
+	}
+
 	// The API, whose answers the client checks against the contract: the
 	// cookie is not a credential there, and the key is.
 	contract := contracttest.Client(t)
@@ -174,7 +189,17 @@ func TestTheProcessOfTheLocalRunIssuesTheCookieWithoutSecure(t *testing.T) {
 	if code := run(t.Context(), []string{"migrate"}, env, io.Discard, &log); code != exitOK {
 		t.Fatalf("migrate exit code = %d; log: %s", code, log.String())
 	}
-	seeded, _ := seedOnce(t, env)
+	// A demo workspace, without the history that the seed writes for its
+	// own: the operator creates the workspace and the test marks it.
+	entered, _ := printed(t, env, "create-workspace", "--name", "Acme")["id"].(string)
+	pool, err := pgxpool.New(t.Context(), databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if _, err := pool.Exec(t.Context(), `UPDATE workspaces SET demo = true WHERE id = $1::uuid`, entered); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -184,7 +209,7 @@ func TestTheProcessOfTheLocalRunIssuesTheCookieWithoutSecure(t *testing.T) {
 	base := "http://" + announced(t, stderr, "api listening")
 
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, base+"/es/session",
-		strings.NewReader(url.Values{"workspace": {seeded[1].ID}}.Encode()))
+		strings.NewReader(url.Values{"workspace": {entered}}.Encode()))
 	if err != nil {
 		t.Fatal(err)
 	}

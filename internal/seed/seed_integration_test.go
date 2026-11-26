@@ -49,14 +49,20 @@ func newStage(t *testing.T) *stage {
 	return &stage{pool: pool, links: link.NewStore(pool, "go.example.dev", rand.Reader), keys: auth.NewKeys(pool, rand.Reader)}
 }
 
+// run seeds the demo workspaces without a history: most of these tests are
+// about the workspaces, their links and their keys. The ones about the
+// history ask for it (history_integration_test.go).
 func (s *stage) run(t *testing.T, now time.Time) []Workspace {
 	t.Helper()
-	seeded, err := Run(t.Context(), s.pool, s.links, s.keys, now)
+	seeded, err := run(t.Context(), s.pool, s.links, s.keys, quiet, now, false, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return seeded
 }
+
+// quiet is a logger that writes nowhere.
+var quiet = slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 func (s *stage) number(t *testing.T, query string, arguments ...any) int64 {
 	t.Helper()
@@ -308,7 +314,7 @@ func TestOneSeedRunsAtATime(t *testing.T) {
 	}
 	bounded, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	if seeded, err := Run(bounded, s.pool, s.links, s.keys, seedDay); !errors.Is(err, ErrBusy) || seeded != nil {
+	if seeded, err := Run(bounded, s.pool, s.links, s.keys, quiet, seedDay, Options{}); !errors.Is(err, ErrBusy) || seeded != nil {
 		t.Fatalf("with another seed running, Run = %v, %v; want %v", seeded, err, ErrBusy)
 	}
 	if workspaces := s.number(t, `SELECT count(*) FROM workspaces`); workspaces != 0 {
@@ -351,7 +357,7 @@ func TestTheSeedStopsAtAnIdentifierAnotherWorkspaceHolds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seeded, err := Run(t.Context(), s.pool, s.links, s.keys, seedDay)
+	seeded, err := Run(t.Context(), s.pool, s.links, s.keys, quiet, seedDay, Options{})
 	if !errors.Is(err, link.ErrAliasTaken) || seeded != nil || !strings.Contains(err.Error(), "Cascade Cycles") || !strings.Contains(err.Error(), "summer-sale") {
 		t.Fatalf("Run = %v, %v; want it to stop at the identifier that is taken, and to name it", seeded, err)
 	}
@@ -376,7 +382,7 @@ func TestTheSeedStopsAtAnIdentifierAnotherWorkspaceHolds(t *testing.T) {
 // that: with a demo workspace there, whoever made it, nothing changes.
 func TestTheSeedDoesNothingWhenADemoWorkspaceIsThere(t *testing.T) {
 	s := newStage(t)
-	first, err := RunIfMissing(t.Context(), s.pool, s.links, s.keys, seedDay)
+	first, err := run(t.Context(), s.pool, s.links, s.keys, quiet, seedDay, true, 0)
 	if err != nil || len(first) != 2 || len(first[0].Links) != 10 || len(first[1].Links) != 6 {
 		t.Fatalf("on an empty database RunIfMissing = %+v, %v; want the two workspaces of the seed", first, err)
 	}
@@ -386,7 +392,7 @@ func TestTheSeedDoesNothingWhenADemoWorkspaceIsThere(t *testing.T) {
 	}
 	before := s.held(t, first[0].ID)
 
-	again, err := RunIfMissing(t.Context(), s.pool, s.links, s.keys, seedDay.Add(24*time.Hour))
+	again, err := run(t.Context(), s.pool, s.links, s.keys, quiet, seedDay.Add(24*time.Hour), true, 0)
 	if err != nil || again != nil {
 		t.Fatalf("with the demo workspaces there RunIfMissing = %+v, %v; want nothing done", again, err)
 	}
@@ -408,7 +414,7 @@ func TestTheSeedDoesNothingWhenADemoWorkspaceIsThere(t *testing.T) {
 	if _, err := other.Exec(t.Context(), `SELECT pg_advisory_lock($1, $2)`, turnOfTheJobs, turnOfTheSeed); err != nil {
 		t.Fatal(err)
 	}
-	if seeded, err := RunIfMissing(t.Context(), s.pool, s.links, s.keys, seedDay); !errors.Is(err, ErrBusy) || seeded != nil {
+	if seeded, err := run(t.Context(), s.pool, s.links, s.keys, quiet, seedDay, true, 0); !errors.Is(err, ErrBusy) || seeded != nil {
 		t.Errorf("with another seed running, RunIfMissing = %v, %v; want %v", seeded, err, ErrBusy)
 	}
 	if _, err := other.Exec(t.Context(), `SELECT pg_advisory_unlock($1, $2)`, turnOfTheJobs, turnOfTheSeed); err != nil {
@@ -425,7 +431,7 @@ func TestTheSeedThatStartsWithTheSystemLeavesAnyDemoWorkspaceAlone(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if seeded, err := RunIfMissing(t.Context(), s.pool, s.links, s.keys, seedDay); err != nil || seeded != nil {
+	if seeded, err := run(t.Context(), s.pool, s.links, s.keys, quiet, seedDay, true, 0); err != nil || seeded != nil {
 		t.Fatalf("with a demo workspace there RunIfMissing = %+v, %v; want nothing done", seeded, err)
 	}
 	if workspaces := s.number(t, `SELECT count(*) FROM workspaces WHERE id = $1::uuid`, sandbox.ID); workspaces != 1 || s.number(t, `SELECT count(*) FROM workspaces`) != 1 {
@@ -436,7 +442,7 @@ func TestTheSeedThatStartsWithTheSystemLeavesAnyDemoWorkspaceAlone(t *testing.T)
 	if _, err := s.pool.Exec(t.Context(), `UPDATE workspaces SET demo = false WHERE id = $1::uuid`, sandbox.ID); err != nil {
 		t.Fatal(err)
 	}
-	if seeded, err := RunIfMissing(t.Context(), s.pool, s.links, s.keys, seedDay); err != nil || len(seeded) != 2 {
+	if seeded, err := run(t.Context(), s.pool, s.links, s.keys, quiet, seedDay, true, 0); err != nil || len(seeded) != 2 {
 		t.Errorf("with no demo workspace RunIfMissing = %+v, %v; want the two of the seed", seeded, err)
 	}
 }

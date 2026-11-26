@@ -28,9 +28,10 @@ WORKER_HEALTH_URL := http://127.0.0.1:8084
 	release-image bench bench-smoke bench-break bench-replica
 
 # Starts the whole system on this machine and waits until it reports ready.
-# The first start seeds two demo workspaces and prints a key for each, this
-# once: only a hash of a key is stored. A later start leaves them as they
-# are and prints no key.
+# The first start seeds two demo workspaces, with a history of ninety days
+# that takes some seconds to write, and prints a key for each, this once:
+# only a hash of a key is stored. A later start leaves them as they are and
+# prints no key.
 up: deploy/.env
 	$(COMPOSE) up --build --detach --wait
 	@curl --silent --show-error --fail --output /dev/null \
@@ -45,14 +46,24 @@ up: deploy/.env
 	@$(COMPOSE) exec --no-TTY api /corinto seed --if-missing
 
 # Deletes the demo workspaces and creates them again as the seed has them,
-# with new keys, which it prints once. The redirect is started again,
-# because it answers from its own copy of the links and would otherwise
-# keep the ones that are gone until it reads the whole copy again.
+# with new keys, which it prints once, and with their history, which takes
+# some seconds to write. The redirect is started again, because it answers
+# from its own copy of the links and would otherwise keep the ones that are
+# gone until it reads the whole copy again. While it starts it does not
+# answer: it is asked every second, and only a redirect that is still not
+# ready after half a minute is said to have failed.
 seed:
 	$(COMPOSE) exec --no-TTY api /corinto seed
 	$(COMPOSE) restart redirect
-	@curl --silent --show-error --fail --output /dev/null \
-		--retry 30 --retry-delay 1 --retry-all-errors $(REDIRECT_HEALTH_URL)/readyz
+	@tries=0; \
+	until curl --silent --fail --output /dev/null $(REDIRECT_HEALTH_URL)/readyz; do \
+		tries=$$((tries + 1)); \
+		if [ "$$tries" -ge 30 ]; then \
+			echo "redirect did not report ready after it was started again" >&2; \
+			exit 1; \
+		fi; \
+		sleep 1; \
+	done
 
 # Stops the system and deletes its data. The stack is disposable: the next
 # `make up` starts from nothing.

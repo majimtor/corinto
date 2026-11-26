@@ -201,11 +201,12 @@ make bench-replica  # the memory of the replica, five times in half a minute
 ```
 
 The first two need Docker and `make`. Each run starts a stack of its own,
-seeds it, and removes it with its data when it ends. A run fails when an
-objective is missed, and prints each figure on a line that begins with
-`figure:`. A laptop has to stay awake while a run lasts: if it sleeps, the
-generator cannot send its load and the run fails. The third needs Go and
-`make`, and about 1.2 GB of memory for its largest size. It prints a line
-for each size and run: `held-MiB` and `held-B/link` are what the copy
-holds, and `most-MiB` the most the process held. It fails when the links
-the plan expects do not fit in the limit of `redirect`.
+seeds it with the demo workspaces and without their history, so that its
+figures are of what it serves, and removes it with its data when it ends. A
+run fails when an objective is missed, and prints each figure on a line that
+begins with `figure:`. A laptop has to stay awake while a run lasts: if it
+sleeps, the generator cannot send its load and the run fails. The third
+needs Go and `make`, and about 1.2 GB of memory for its largest size. It
+prints a line for each size and run: `held-MiB` and `held-B/link` are what
+the copy holds, and `most-MiB` the most the process held. It fails when the
+links the plan expects do not fit in the limit of `redirect`.

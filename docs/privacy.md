@@ -130,7 +130,8 @@ a secret.
   `TestLeavingClosesTheSessionOnTheServerAndInTheBrowser` in
   `internal/panel`.
 
-The demo workspaces of the seed are fictitious, and the load scenario
+The demo workspaces of the seed are fictitious, and so is their history:
+the seed makes up its requests and nobody made them. The load scenario
 sends its requests from addresses reserved for benchmarks.
 
 ## What Corinto sends elsewhere

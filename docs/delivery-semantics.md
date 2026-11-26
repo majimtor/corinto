@@ -165,6 +165,14 @@ it does when the database is absent at start, is in PLAN.md section 3.
   dead-lettered event is a raw event, and is deleted when its time is up,
   counted from the moment it was set aside (PLAN.md section 5). After that
   it cannot be processed. It stays counted as dead-lettered.
+- **The dead letter of a demo workspace did not fail.** Nothing in the
+  schema refuses an event that a consumer writes, so no event of the seed
+  can use up its attempts. The seed sets one aside itself, counted as any
+  other, so that the reconciliation of a demo workspace has one to show.
+  Its reason names a constraint, `seed_example`, that exists nowhere. Sent
+  back to the inbox, it is processed.
+  Test: `TestAnEventOfADemoWorkspaceIsSetAsideAndTheReconciliationAddsUp`
+  in `internal/ingest`.
 - **Exactly once ends at the aggregates.** The guarantee of statement 4
   rests on one PostgreSQL transaction. Nothing outside the database is
   told about an event in S1; when something is, that step has its own

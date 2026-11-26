@@ -45,7 +45,9 @@ dc up --build --detach --wait db migrate api redirect worker
 
 # The seed prints a key of each demo workspace, once. The first is handed
 # to the load generator, which creates a link with it, and is shown nowhere.
-key=$(dc exec --no-TTY api /corinto seed 2>/dev/null | grep -o '"key":"cor_[^"]*"' | head -n 1 | cut -d '"' -f 4)
+# The seed is asked for no history: the figures below are read from the
+# whole database, and are of what this run serves.
+key=$(dc exec --no-TTY api /corinto seed --no-history 2>/dev/null | grep -o '"key":"cor_[^"]*"' | head -n 1 | cut -d '"' -f 4)
 [ -n "$key" ] || { echo "the seed printed no key" >&2; exit 1; }
 
 failed=0

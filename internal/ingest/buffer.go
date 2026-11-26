@@ -191,6 +191,21 @@ func (b *Buffer) Run(ctx context.Context) {
 // flush writes the counts and then the events that wait, in batches. What
 // the inbox does not take stays where it was.
 func (b *Buffer) flush(ctx context.Context) {
+	err := b.empty(ctx)
+	switch {
+	case err != nil && ctx.Err() != nil:
+		// The process is stopping: the write was cut off, not refused.
+	case err != nil && !b.failing:
+		b.logger.WarnContext(ctx, "the inbox did not take what the buffer holds, which waits", "error", err.Error())
+	case err == nil && b.failing:
+		b.logger.InfoContext(ctx, "the inbox takes events again")
+	}
+	b.failing = err != nil
+}
+
+// empty writes what the buffer holds, and returns why the inbox did not
+// take it when it did not. What it did not take waits in the buffer.
+func (b *Buffer) empty(ctx context.Context) error {
 	// The counts and the events are taken at one instant, and the counts
 	// are written first: an event is never in the inbox before the count
 	// of the response that owed it, so what was accepted never exceeds
@@ -211,16 +226,7 @@ func (b *Buffer) flush(ctx context.Context) {
 	if dropped > 0 {
 		b.logger.WarnContext(ctx, "the buffer was full and events were dropped", "dropped", dropped)
 	}
-	err := b.write(ctx, counts, remaining)
-	switch {
-	case err != nil && ctx.Err() != nil:
-		// The process is stopping: the write was cut off, not refused.
-	case err != nil && !b.failing:
-		b.logger.WarnContext(ctx, "the inbox did not take what the buffer holds, which waits", "error", err.Error())
-	case err == nil && b.failing:
-		b.logger.InfoContext(ctx, "the inbox takes events again")
-	}
-	b.failing = err != nil
+	return b.write(ctx, counts, remaining)
 }
 
 // write writes counts and then the first events that wait, up to a

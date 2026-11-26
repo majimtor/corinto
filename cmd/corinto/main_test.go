@@ -27,7 +27,11 @@ func TestRunRejectsWrongUsage(t *testing.T) {
 		{"extra argument to seed", []string{"seed", "again"}},
 		{"an option the seed does not have", []string{"seed", "--again"}},
 		{"extra argument after the option of the seed", []string{"seed", "--if-missing", "now"}},
+		{"an option of the seed given twice", []string{"seed", "--if-missing", "--if-missing"}},
+		{"the other option of the seed given twice", []string{"seed", "--no-history", "--if-missing", "--no-history"}},
+		{"an option the seed does not have after one it has", []string{"seed", "--no-history", "--again"}},
 		{"the option of the seed given to another command", []string{"migrate", "--if-missing"}},
+		{"the other option of the seed given to another command", []string{"worker", "--no-history"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
