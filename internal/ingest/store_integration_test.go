@@ -622,8 +622,23 @@ func TestTheReconciliationAddsUp(t *testing.T) {
 		t.Fatalf("with the database away the inbox has %d rows", rows)
 	}
 
+	// One flush writes all that waits, unless a write runs out of its time:
+	// the flush stops there and the rest waits for the next one, as it does
+	// in the process, which flushes every second. A database slowed down by
+	// whatever else the machine is doing takes more than one.
 	into.closed.Store(false)
-	buffer.flush(t.Context())
+	for flushes := 1; ; flushes++ {
+		buffer.flush(t.Context())
+		buffer.mu.Lock()
+		waiting := len(buffer.waiting)
+		buffer.mu.Unlock()
+		if waiting == 0 {
+			break
+		}
+		if flushes == 20 {
+			t.Fatalf("after %d flushes with the database back, %d events still wait", flushes, waiting)
+		}
+	}
 	for _, want := range []struct {
 		day, workspace string
 		served, lost   int64
