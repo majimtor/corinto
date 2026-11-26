@@ -176,6 +176,12 @@ func referred(host string) func(*ingest.Event) {
 
 func crawled(e *ingest.Event) { e.Classification.Class = classify.ClassCrawler }
 
+// on says what the rules made of whoever asked: a kind of device and a
+// family of browsers.
+func on(device classify.Device, browser classify.Browser) func(*ingest.Event) {
+	return func(e *ingest.Event) { e.Classification.Device, e.Classification.Browser = device, browser }
+}
+
 func unserved(e *ingest.Event) { e.Outcome = ingest.OutcomeInactive }
 
 // times returns as many events as asked, each made anew.
@@ -362,6 +368,10 @@ func TestThePageOfALinkShowsItsFiguresInBothLanguages(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		most, err := s.texts.plural(c.lang, "count.clicks", 1200)
+		if err != nil {
+			t.Fatal(err)
+		}
 		answer := s.get(t, workspace, "/"+string(c.lang)+"/links/"+target.ID)
 		page := answer.Body.String()
 		if answer.Code != http.StatusOK {
@@ -385,8 +395,12 @@ func TestThePageOfALinkShowsItsFiguresInBothLanguages(t *testing.T) {
 			"the day with the most":         peak + ".",
 			"a row of the series":           `<time datetime="2026-11-17">` + peak + `</time></th><td class="count">` + c.most + `</td>`,
 			"the site with the most":        `<th scope="row" class="address">news.example.org</th><td class="count">`,
+			"what that site adds up to":     "<p>" + s.text(t, c.lang, "breakdown.summary", "name", "news.example.org", "clicks", most, "total", 1201) + "</p>",
 			"the share of that site":        share,
 			"the clicks without a referrer": `<th scope="row" class="address">` + s.text(t, c.lang, "referrers.none") + "</th>",
+			"the kind of device":            `<th scope="row">` + s.text(t, c.lang, "device.desktop") + `</th><td class="count">` + c.clicks + "</td>",
+			"the browser":                   `<th scope="row">` + s.text(t, c.lang, "browser.chrome") + `</th><td class="count">` + c.clicks + "</td>",
+			"what opens the table":          "<details>\n<summary>" + s.text(t, c.lang, "series.table") + "</summary>",
 			"the other language":            `<a href="/` + c.other + "/links/" + target.ID + `" hreflang="` + c.other + `" lang="` + c.other + `">`,
 			"the stylesheet":                `<link rel="stylesheet" href="/assets/panel-`,
 		} {
@@ -420,15 +434,207 @@ func TestThePageOfALinkWithNoTrafficSaysSo(t *testing.T) {
 		for what, want := range map[string]string{
 			"the identifier as its name": "<h1>" + target.Identifier + "</h1>",
 			"that it was not requested":  s.text(t, lang, "series.empty", "days", 30),
-			"that it had no click":       s.text(t, lang, "referrers.empty", "days", 30),
+			"that it had no click":       s.text(t, lang, "breakdown.empty", "days", 30),
 		} {
 			if !strings.Contains(page, want) {
 				t.Errorf("the page in %q does not say %s: no %q in it", lang, what, want)
 			}
 		}
+		// Each of the three breakdowns says so, and none has a table.
+		if said := strings.Count(page, s.text(t, lang, "breakdown.empty", "days", 30)); said != 3 || strings.Count(page, "<table>") != 1 {
+			t.Errorf("the page in %q says %d times that it had no click and has %d tables; want three times, and the table of the series alone",
+				lang, said, strings.Count(page, "<table>"))
+		}
 		// It is not a demo workspace, and no event was ever classified.
 		if strings.Contains(page, s.text(t, lang, "link.synthetic")) || strings.Contains(page, `class="mark"`) {
 			t.Errorf("the page in %q says that the traffic is synthetic, or marks a change of rules", lang)
+		}
+	}
+}
+
+// between returns what a page holds from one mark to the next one.
+func between(t *testing.T, page, from, to string) string {
+	t.Helper()
+	start := strings.Index(page, from)
+	if start < 0 {
+		t.Fatalf("the page has no %q", from)
+	}
+	end := strings.Index(page[start:], to)
+	if end < 0 {
+		t.Fatalf("the page has no %q after %q", to, from)
+	}
+	return page[start : start+end]
+}
+
+// The page of a link covers the period its address names: seven, thirty or
+// ninety days of UTC that end today, with the figures, the series and the
+// breakdowns of those days and of no other.
+func TestThePageOfALinkCoversThePeriodItsAddressNames(t *testing.T) {
+	s := newStage(t)
+	workspace := s.workspace(t, false)
+	target := s.link(t, workspace, link.Draft{Title: "Spring reading list"})
+	// The first and the last day of each period have clicks, and so has
+	// the day before each. Each day has a number of them that no sum of
+	// the others gives, 1, 2, 4 and so on to 64, so a total says which
+	// days are in it. The devices and the browsers of a day are not one
+	// for one: in no period does the device with the most have as many
+	// clicks as the browser with the most.
+	var events []ingest.Event
+	for _, some := range []struct {
+		ago, clicks int
+		device      classify.Device
+		browser     classify.Browser
+	}{
+		{ago: 0, clicks: 1, device: classify.DeviceMobile, browser: classify.BrowserSafari},
+		{ago: 6, clicks: 1, device: classify.DeviceDesktop, browser: classify.BrowserChrome},
+		{ago: 6, clicks: 1, device: classify.DeviceDesktop, browser: classify.BrowserFirefox},
+		{ago: 7, clicks: 4, device: classify.DeviceDesktop, browser: classify.BrowserFirefox},
+		{ago: 29, clicks: 5, device: classify.DeviceTablet, browser: classify.BrowserOther},
+		{ago: 29, clicks: 3, device: classify.DeviceTablet, browser: classify.BrowserEdge},
+		{ago: 30, clicks: 16, device: classify.DeviceDesktop, browser: classify.BrowserEdge},
+		{ago: 89, clicks: 20, device: classify.DeviceOther, browser: classify.BrowserOpera},
+		{ago: 89, clicks: 12, device: classify.DeviceOther, browser: classify.BrowserChrome},
+		{ago: 90, clicks: 64, device: classify.DeviceMobile, browser: classify.BrowserSamsungInternet},
+	} {
+		events = append(events, times(some.clicks, func() ingest.Event { return visit(target, daysAgo(some.ago), on(some.device, some.browser)) })...)
+	}
+	s.count(t, events...)
+
+	// A row of a breakdown: the key of its name, its clicks and how long
+	// its bar is, as a part of the longest.
+	type row struct {
+		key    string
+		clicks int64
+		bar    string
+	}
+	for _, c := range []struct {
+		days              int
+		query             string
+		total             int64
+		devices, browsers []row
+	}{
+		// Three browsers with a click each: they go by their names, and the
+		// first is the one the page names.
+		{
+			days: 7, query: "?days=7", total: 3,
+			devices:  []row{{"device.desktop", 2, "100"}, {"device.mobile", 1, "50"}},
+			browsers: []row{{"browser.chrome", 1, "100"}, {"browser.firefox", 1, "100"}, {"browser.safari", 1, "100"}},
+		},
+		// The row of what the rules do not tell apart is the last one, with
+		// as many clicks as the first: the first is the one the page names.
+		{
+			days: 30, query: "", total: 15,
+			devices: []row{{"device.tablet", 8, "100"}, {"device.desktop", 6, "75"}, {"device.mobile", 1, "12.5"}},
+			browsers: []row{
+				{"browser.firefox", 5, "100"}, {"browser.edge", 3, "60"}, {"browser.chrome", 1, "20"},
+				{"browser.safari", 1, "20"}, {"browser.other", 5, "100"},
+			},
+		},
+		// And it is the last one when it has the most, which the page says.
+		{
+			days: 90, query: "?days=90", total: 63,
+			devices: []row{{"device.desktop", 22, "68.7"}, {"device.tablet", 8, "25"}, {"device.mobile", 1, "3.1"}, {"device.other", 32, "100"}},
+			browsers: []row{
+				{"browser.opera", 20, "100"}, {"browser.edge", 19, "95"}, {"browser.chrome", 13, "65"},
+				{"browser.firefox", 5, "25"}, {"browser.safari", 1, "5"}, {"browser.other", 5, "25"},
+			},
+		},
+	} {
+		for _, lang := range languages {
+			other := spanish
+			if lang == spanish {
+				other = english
+			}
+			write := func(text string, err error) string {
+				t.Helper()
+				if err != nil {
+					t.Fatal(err)
+				}
+				return escaped(text)
+			}
+			here := "/" + string(lang) + "/links/" + target.ID
+			answer := s.get(t, workspace, here+c.query)
+			page := answer.Body.String()
+			if answer.Code != http.StatusOK {
+				t.Fatalf("the page of %d days in %q = %d: %s", c.days, lang, answer.Code, page)
+			}
+			first, last := write(s.texts.date(lang, daysAgo(c.days-1))), write(s.texts.date(lang, daysAgo(0)))
+			for what, want := range map[string]string{
+				"its title":          "<title>" + s.text(t, lang, "link.page_title", "name", "Spring reading list", "days", c.days) + " · Corinto</title>",
+				"the period":         `<h2 id="period">` + s.text(t, lang, "link.period", "days", c.days, "first", first, "last", last) + "</h2>",
+				"the summary":        s.text(t, lang, "series.summary", "days", c.days, "requests", write(s.texts.plural(lang, "count.requests", c.total)), "clicks", write(s.texts.plural(lang, "count.clicks", c.total)), "date", write(s.texts.date(lang, daysAgo(c.days-1)))),
+				"the other language": `<a href="/` + string(other) + "/links/" + target.ID + c.query + `" hreflang="` + string(other) + `"`,
+			} {
+				if !strings.Contains(page, want) {
+					t.Errorf("the page of %d days in %q does not show %s: no %q in it", c.days, lang, what, want)
+				}
+			}
+			// The requests and the estimated clicks are the clicks of the
+			// days of the period, and the series has a row for each day.
+			if figures := strings.Count(page, `<dd class="value">`+s.texts.number(lang, c.total)+"</dd>"); figures != 2 {
+				t.Errorf("the page of %d days in %q shows the total %d in %d of its figures, want in two", c.days, lang, c.total, figures)
+			}
+			if rows := strings.Count(page, "<time datetime="); rows != c.days {
+				t.Errorf("the series of the page of %d days in %q has %d days", c.days, lang, rows)
+			}
+			// The three periods are offered, each at its address, and the
+			// one of the page is marked as the one that is shown.
+			var choices []string
+			for _, offered := range []struct {
+				days  int64
+				query string
+			}{{days: 7, query: "?days=7"}, {days: 30, query: ""}, {days: 90, query: "?days=90"}} {
+				current := ""
+				if int(offered.days) == c.days {
+					current = ` aria-current="page"`
+				}
+				choices = append(choices, `<li><a href="`+here+offered.query+`"`+current+">"+write(s.texts.plural(lang, "period.days", offered.days))+"</a></li>")
+			}
+			if want := `<nav class="periods" aria-label="` + s.text(t, lang, "period.label") + "\">\n<ul>\n" + strings.Join(choices, "\n") + "\n</ul>\n</nav>"; !strings.Contains(page, want) || strings.Count(page, "aria-current=") != 1 {
+				t.Errorf("the page of %d days in %q does not offer its three periods with its own marked: no %q in it, or more than one mark", c.days, lang, want)
+			}
+			// Each breakdown has the rows of the period and no other, in
+			// their order, and names the first of the rows with the most.
+			for _, breakdown := range []struct {
+				what, from, to string
+				rows           []row
+			}{
+				{what: "devices", from: `<h2 id="devices-title">`, to: `<h2 id="browsers-title">`, rows: c.devices},
+				{what: "browsers", from: `<h2 id="browsers-title">`, to: "</main>", rows: c.browsers},
+			} {
+				section := between(t, page, breakdown.from, breakdown.to)
+				var rows []string
+				top := breakdown.rows[0]
+				for _, row := range breakdown.rows {
+					if row.clicks > top.clicks {
+						top = row
+					}
+					rows = append(rows, `<tr><th scope="row">`+s.text(t, lang, row.key)+`</th><td class="count">`+s.texts.number(lang, row.clicks)+
+						`</td><td class="share"><svg class="bar" width="120" height="10" aria-hidden="true" focusable="false"><rect class="bar-fill" width="`+
+						row.bar+`%" height="100%" rx="2"/></svg> `+write(s.texts.percent(lang, row.clicks, c.total))+"</td></tr>")
+				}
+				if want := "<tbody>\n" + strings.Join(rows, "\n") + "\n</tbody>"; !strings.Contains(section, want) {
+					t.Errorf("the %s of %d days in %q are not these rows in this order: no %q in %q", breakdown.what, c.days, lang, want, section)
+				}
+				summary := s.text(t, lang, "breakdown.summary", "name", s.texts.plain(lang, top.key),
+					"clicks", write(s.texts.plural(lang, "count.clicks", top.clicks)), "total", c.total)
+				if !strings.Contains(section, "<p>"+summary+"</p>") {
+					t.Errorf("the %s of %d days in %q do not say which has the most: no %q in it", breakdown.what, c.days, lang, summary)
+				}
+			}
+		}
+	}
+
+	// The default period has one more address, the one that names it.
+	plain, named := s.get(t, workspace, "/en/links/"+target.ID), s.get(t, workspace, "/en/links/"+target.ID+"?days=30")
+	if named.Code != http.StatusOK || named.Body.String() != plain.Body.String() {
+		t.Errorf("the page asked for thirty days = %d, and it is not the page asked for no period", named.Code)
+	}
+	// Anything else is a page the panel does not have.
+	for _, query := range []string{"?days=14", "?days=07", "?days=", "?days", "?days=7&days=7", "?days=90&days=7", "?days=7%20", "?days=all"} {
+		answer := s.get(t, workspace, "/en/links/"+target.ID+query)
+		if page := answer.Body.String(); answer.Code != http.StatusNotFound || !strings.Contains(page, "<h1>"+s.text(t, english, "notfound.title")+"</h1>") || strings.Contains(page, "Spring") {
+			t.Errorf("GET the page of the link with %s = %d, want the page of what is not found and nothing of the link", query, answer.Code)
 		}
 	}
 }

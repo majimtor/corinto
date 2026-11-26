@@ -17,6 +17,7 @@ event is delivered have their own document, `docs/delivery-semantics.md`.
 | At the design volume the raw events take 9.2 GB of the 10 GB of their objective, and took up to 9.7 GB in one run | 2026-11-20 | Little room: a wider event or one more index misses the objective | `make bench` fails when it is missed. `docs/benchmarks.md` says what the figure depends on |
 | Where the system breaks is not known. The break test reached its ceiling, 6,000 requests a second, with no objective missed, and the load generator, on the same machine, gave way first | 2026-11-20 | The published figure is a floor | A load generator on another machine (`docs/benchmarks.md`) |
 | No command starts the system from the image of a release: `make up` and the codespace build it from source | 2026-11-21 | The image is published so that a reader can start without compiling (PLAN.md section 13), and none can yet without a Compose file of their own. Started that way by hand, `v0.1.0` works | The next slice |
+| In a codespace the panel writes a short link as `localhost:8082` and its path, the host the stack is configured with. A browser outside the codespace reaches that port at a forwarded address of its own | 2026-11-26 | A short link read in the panel opens from the terminal of the codespace, where the tour of the README runs, and not from the browser the panel is read in | The address the Ports panel of the codespace gives for port 8082, "Short links", followed by the path of the link: `redirect` answers whatever host it is asked by |
 
 ## Clean-machine drill
 

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/majimtor/corinto/internal/classify"
 	"github.com/majimtor/corinto/internal/link"
 )
 
@@ -90,6 +91,45 @@ func TestTheCataloguesNameEveryStateAndEveryMonth(t *testing.T) {
 			if _, ok := texts[lang][key]; !ok {
 				t.Errorf("the catalogue of %q lacks %q, which the code asks for", lang, key)
 			}
+		}
+	}
+}
+
+// The name of a kind of device and of a family of browsers is a text whose
+// key the code puts together from a value of the rules. Every value of the
+// two enumerations has its name in both catalogues, and the catalogues name
+// nothing the rules do not have.
+func TestTheCataloguesNameEveryDeviceAndEveryBrowser(t *testing.T) {
+	texts, err := readCatalogs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked := make(map[string]bool)
+	for _, device := range classify.Devices() {
+		asked["device."+string(device)] = true
+	}
+	for _, browser := range classify.Browsers() {
+		asked["browser."+string(browser)] = true
+	}
+	if len(asked) != len(classify.Devices())+len(classify.Browsers()) || len(asked) < 11 {
+		t.Fatalf("the rules have %d devices and %d browsers, and their names are %d keys", len(classify.Devices()), len(classify.Browsers()), len(asked))
+	}
+	for _, lang := range languages {
+		for key := range asked {
+			if found, ok := texts[lang][key]; !ok || found.counts {
+				t.Errorf("the catalogue of %q lacks %q, which the code asks for, or has it as a text that counts", lang, key)
+			}
+		}
+		for key := range texts[lang] {
+			if (strings.HasPrefix(key, "device.") || strings.HasPrefix(key, "browser.")) && !asked[key] {
+				t.Errorf("the catalogue of %q has %q, which nothing asks for", lang, key)
+			}
+		}
+	}
+	// What the page calls the rows it adds what it cannot name to.
+	for _, rest := range []string{"device." + string(classify.DeviceOther), "browser." + string(classify.BrowserOther)} {
+		if !asked[rest] {
+			t.Errorf("%q is not the name of a value of the rules", rest)
 		}
 	}
 }
