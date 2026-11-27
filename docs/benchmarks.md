@@ -2,12 +2,12 @@
 
 The objectives of PLAN.md section 15 that a load run can check, measured.
 Every figure is the median of five runs of one command, with the smallest
-and the largest, and each run is the whole scenario: ten minutes. How a
-figure is measured is in PLAN.md section 15 and in ADR 0020; this document
-holds what was measured, where and when. What was not measured is at the
-end, as an objective and not as a fact. The memory of the replica, which
-the plan says is published (section 3), has a section of its own, with
-its conditions.
+and the largest, and each run of the burst is the whole scenario: ten
+minutes. How a figure is measured is in PLAN.md section 15 and in ADR 0020;
+this document holds what was measured, where and when. What was not
+measured is at the end, as an objective and not as a fact. The memory of
+the replica, which the plan says is published (section 3), and the pages
+of the panel have a section of their own each, with its conditions.
 
 ## Conditions
 
@@ -176,11 +176,75 @@ The sizing probe of that record had 34 MB for 100,000 links and 265 MB for
 a million. The copy as it is built holds 39.7 MB and 491.7 MB, which are
 the 37.9 and 469.0 MiB above.
 
+## The pages of the panel
+
+The plan asks that the queries of the panel, over the history of the seed,
+take under 200 ms at the 95th percentile (section 15). What was measured
+is more than the queries: the whole answer to a page, from the request to
+its last byte, as the load generator sees it from another container of the
+same network. It holds the queries of the page, its rendering and the hop
+between the two containers, so a page that meets the objective this way
+meets it.
+
+Seven pages were asked for in turn, with one session, in the first demo
+workspace of the seed: the list of its links; the page of its first link,
+the one the seed gives the most traffic, at seven, thirty and ninety days;
+the keys; and the status at seven and at 31 days. A run asks for each page
+86 times.
+
+| | |
+| --- | --- |
+| Date | 2026-11-27 |
+| Machine | The one of the conditions above |
+| Containers | Docker Desktop 4.100.1, engine 29.9.3, with 8 CPUs and 8 GB for all the containers together |
+| Limits | PostgreSQL 18.7: 1 CPU and 1 GB. `api`, which serves the panel, `worker` and the load generator: none |
+| Data | The two demo workspaces of the seed with its history: ninety days, about 60,000 events (PLAN.md section 8) |
+| Load | k6 2.4.0, at a constant arrival rate: 10 requests a second for one minute |
+| Other load | The machine was not reserved. A browser was in use and a terminal was open while the runs lasted, which the rules ask a published figure to be free of: these figures are no better than they would be on a quiet machine. It was on mains power and was kept awake |
+| Commands | `make bench-panel`, five times, one after another |
+| Commit | `7bc9ba5`, with the scenario that came with these figures |
+
+All five runs met the objective on every page, and in each the generator
+sent every request it was due.
+
+| Page | 95th percentile: median | Smallest | Largest |
+| --- | --- | --- | --- |
+| The list of links | 4.1 ms | 3.6 ms | 4.4 ms |
+| A link, seven days | 9.8 ms | 9.4 ms | 10.1 ms |
+| A link, thirty days | 12.2 ms | 11.1 ms | 13.1 ms |
+| A link, ninety days | 16.6 ms | 13.2 ms | 17.6 ms |
+| The keys | 3.3 ms | 3.2 ms | 3.7 ms |
+| The status, seven days | 6.2 ms | 5.9 ms | 7.8 ms |
+| The status, 31 days | 9.8 ms | 9.5 ms | 10.3 ms |
+
+The other percentiles, each the median of the five runs, and the slowest
+answer of all five:
+
+| Page | 50th | 99th | 99.9th | Slowest answer |
+| --- | --- | --- | --- | --- |
+| The list of links | 2.5 ms | 4.6 ms | 4.9 ms | 9.3 ms |
+| A link, seven days | 6.1 ms | 15.2 ms | 18.4 ms | 46.7 ms |
+| A link, thirty days | 7.6 ms | 15.6 ms | 17.5 ms | 24.3 ms |
+| A link, ninety days | 10.2 ms | 22.0 ms | 22.5 ms | 103.8 ms |
+| The keys | 2.5 ms | 3.9 ms | 4.3 ms | 10.2 ms |
+| The status, seven days | 4.2 ms | 8.2 ms | 12.3 ms | 16.3 ms |
+| The status, 31 days | 4.8 ms | 13.7 ms | 17.1 ms | 23.6 ms |
+
+With 86 answers of a page in a run, its 99.9th percentile is in practice
+its slowest answer, and its 99th one of its two slowest: they say how far
+the slowest went in a run, and no more.
+
+The page of a link is the one that costs: seven queries for its figures,
+of which the series and the three breakdowns read more rows the longer the
+period. At ninety days it answers in a twelfth of the objective.
+
 ## What was not measured
 
-- **Panel queries over the seed under 200 ms at the 95th percentile.**
-  The panel and the synthetic history of the seed belong to the next
-  slice. It will be measured there, over that history.
+- **The panel with more than the seed holds.** A demo workspace has ten
+  links and one key. The list of a workspace with a thousand links was not
+  measured.
+- **The panel under load.** Ten requests a second from one session is a
+  few people reading it, not many.
 - **Where the system breaks.** Not below 6,000 requests a second, as
   above. Finding it needs a load generator on another machine.
 - **Anything with a network.** The service time has none in it, and no
@@ -198,15 +262,18 @@ the 37.9 and 469.0 MiB above.
 make bench          # the burst, ten minutes; five runs make a figure
 make bench-break    # the break test, ten minutes
 make bench-replica  # the memory of the replica, five times in half a minute
+make bench-panel    # the pages of the panel, a minute; five runs, a figure
 ```
 
-The first two need Docker and `make`. Each run starts a stack of its own,
-seeds it with the demo workspaces and without their history, so that its
-figures are of what it serves, and removes it with its data when it ends. A
-run fails when an objective is missed, and prints each figure on a line that
-begins with `figure:`. A laptop has to stay awake while a run lasts: if it
-sleeps, the generator cannot send its load and the run fails. The third
-needs Go and `make`, and about 1.2 GB of memory for its largest size. It
-prints a line for each size and run: `held-MiB` and `held-B/link` are what
-the copy holds, and `most-MiB` the most the process held. It fails when the
-links the plan expects do not fit in the limit of `redirect`.
+The first two and the last need Docker and `make`. Each run starts a stack
+of its own and removes it with its data when it ends. The first two seed it
+with the demo workspaces and without their history, so that their figures
+are of what they serve; the last one seeds it with the history, which is
+what it measures over. A run fails when an objective is missed, and prints
+each figure on a line that begins with `figure:`. A laptop has to stay
+awake while a run lasts: if it sleeps, the generator cannot send its load
+and the run fails. The third needs Go and `make`, and about 1.2 GB of
+memory for its largest size. It prints a line for each size and run:
+`held-MiB` and `held-B/link` are what the copy holds, and `most-MiB` the
+most the process held. It fails when the links the plan expects do not fit
+in the limit of `redirect`.

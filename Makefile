@@ -25,7 +25,7 @@ REDIRECT_HEALTH_URL := http://127.0.0.1:8083
 WORKER_HEALTH_URL := http://127.0.0.1:8084
 
 .PHONY: up down seed test integration verify lint contract secrets docs image image-go-version \
-	release-image bench bench-smoke bench-break bench-replica e2e
+	release-image bench bench-smoke bench-break bench-replica bench-panel e2e
 
 # Starts the whole system on this machine and waits until it reports ready.
 # The first start seeds two demo workspaces, with a history of ninety days
@@ -194,6 +194,14 @@ bench-smoke: deploy/.env
 # where. Run by hand, for the figure the plan asks for.
 bench-break: deploy/.env
 	K6_IMAGE=$(K6_IMAGE) bench/run.sh break
+
+# Measures the pages of the panel over the history of the seed, in a stack
+# of its own with the limits of the plan: a minute of them at a steady
+# rate. It fails when the 95th percentile of a page is over the 200 ms of
+# the objective (PLAN.md section 15). Five runs make a figure of
+# docs/benchmarks.md.
+bench-panel: deploy/.env
+	K6_IMAGE=$(K6_IMAGE) bench/panel.sh
 
 # Measures, five times, the memory the copy of the links takes in a
 # process: what it holds, and the most the process holds from the system
