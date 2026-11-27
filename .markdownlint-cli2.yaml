@@ -9,3 +9,7 @@ ignores:
   # Written by the release tool from the commit history; its layout is not
   # ours to change.
   - CHANGELOG.md
+  # What the browser tests install and leave behind: the documents of other
+  # projects, and the notes of a run that failed.
+  - e2e/node_modules
+  - e2e/results

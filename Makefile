@@ -25,7 +25,7 @@ REDIRECT_HEALTH_URL := http://127.0.0.1:8083
 WORKER_HEALTH_URL := http://127.0.0.1:8084
 
 .PHONY: up down seed test integration verify lint contract secrets docs image image-go-version \
-	release-image bench bench-smoke bench-break bench-replica
+	release-image bench bench-smoke bench-break bench-replica e2e
 
 # Starts the whole system on this machine and waits until it reports ready.
 # The first start seeds two demo workspaces, with a history of ninety days
@@ -90,9 +90,22 @@ test:
 integration:
 	go test -tags integration -race -shuffle=on -count=1 ./...
 
-# Runs every check CI runs, except code scanning, which runs on GitHub. A
-# clean clone must pass it.
+# Runs every check CI runs, except code scanning, which runs on GitHub, and
+# the browser tests, which `make e2e` runs. A clean clone must pass it.
 verify: lint contract test integration secrets docs image bench-smoke
+
+# Runs the browser tests against the local stack, which it starts first:
+# the whole path of the panel in Chromium, with axe on every page, and the
+# demo entry in Firefox and WebKit too (PLAN.md section 12). It is the one
+# target that needs Node, in the version e2e/.node-version names, and the
+# first time it downloads the three browsers Playwright pins. CI gives it
+# the flag that also installs what they need of the system. The run leaves
+# a screenshot of each page in e2e/screenshots.
+PLAYWRIGHT_DEPS ?=
+e2e: up
+	cd e2e && npm ci
+	cd e2e && npx playwright install $(PLAYWRIGHT_DEPS) chromium firefox webkit
+	cd e2e && npx playwright test
 
 # Compiles everything and runs the static analysers, over the integration
 # tests too.

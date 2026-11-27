@@ -4,7 +4,6 @@
 # keeps a withdrawn or compromised release out of the queue. The messages
 # follow the commit rules of the repository. Nothing merges on its own
 # (docs/engineering-rules.md, "Dependencies").
-# The npm entry is added together with its manifest.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -79,3 +78,20 @@ updates:
       - dependency-name: postgres
         update-types:
           - version-update:semver-major
+
+  - package-ecosystem: npm
+    directory: /e2e
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      browser-tests:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch

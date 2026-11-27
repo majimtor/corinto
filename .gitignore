@@ -2,3 +2,8 @@
 .env
 .env.*
 !.env.example
+
+# What the browser tests install and leave behind.
+e2e/node_modules/
+e2e/results/
+e2e/screenshots/
