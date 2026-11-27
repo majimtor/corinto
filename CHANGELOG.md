@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.0](https://github.com/majimtor/corinto/compare/v0.1.0...v0.2.0) (2026-11-27)
+
+
+### Features
+
+* **auth:** add the sessions of the panel ([#73](https://github.com/majimtor/corinto/issues/73)) ([1a0c90f](https://github.com/majimtor/corinto/commit/1a0c90f42190e2f8724cdb6d6057aff8f49ed5e5))
+* **panel:** add the choice of period and the breakdowns by device and browser ([#81](https://github.com/majimtor/corinto/issues/81)) ([43f4f1b](https://github.com/majimtor/corinto/commit/43f4f1b0deccb1c6255d4cc1dc5c890ef11eb23c))
+* **panel:** add the demo entry and the list of links ([#76](https://github.com/majimtor/corinto/issues/76)) ([e511ea7](https://github.com/majimtor/corinto/commit/e511ea75790de79c45bd4f32b1637680b4cca27f))
+* **panel:** add the forms that create, change and delete a link ([#79](https://github.com/majimtor/corinto/issues/79)) ([2cbf049](https://github.com/majimtor/corinto/commit/2cbf04906b3a911ed00d29e184dd9baf2e405e39))
+* **panel:** add the keys of the API ([#82](https://github.com/majimtor/corinto/issues/82)) ([d893585](https://github.com/majimtor/corinto/commit/d893585445349d16413ce8c22b833f1ecf6c5a59))
+* **panel:** add the page of a link ([#70](https://github.com/majimtor/corinto/issues/70)) ([fa5478a](https://github.com/majimtor/corinto/commit/fa5478a3715e0f747ae9413a38cc6d19cb820afe))
+* **panel:** add the status page ([#83](https://github.com/majimtor/corinto/issues/83)) ([c1bd525](https://github.com/majimtor/corinto/commit/c1bd525fd2a35396e6ba0915e67f0c2308ed7683))
+* **seed:** write ninety days of synthetic history ([#78](https://github.com/majimtor/corinto/issues/78)) ([2a5f1bb](https://github.com/majimtor/corinto/commit/2a5f1bb5aa11391094178fe7f83802969c8515bf))
+
+
+### Bug Fixes
+
+* **deploy:** ask the database over TCP whether it is ready ([#88](https://github.com/majimtor/corinto/issues/88)) ([7bc9ba5](https://github.com/majimtor/corinto/commit/7bc9ba527f975f5f0bfeeb161a3cbcec3f1a491e))
+
 ## 0.1.0 (2026-11-20)
 
 
