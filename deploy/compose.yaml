@@ -14,7 +14,12 @@ services:
     volumes:
       - db-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready --username corinto --dbname corinto"]
+      # Asked over TCP, which is how the other services reach the database.
+      # While the image prepares a new database it runs a server that
+      # listens on its socket alone, and stops it before it starts the one
+      # that stays. Asked by the socket, that first server says it is
+      # ready, and whoever waited for it finds nobody at the port.
+      test: ["CMD-SHELL", "pg_isready --host 127.0.0.1 --username corinto --dbname corinto"]
       interval: 2s
       timeout: 3s
       retries: 30
