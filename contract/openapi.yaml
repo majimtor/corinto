@@ -37,7 +37,7 @@ info:
     valid key too. In both cases the answer is `429` with `Retry-After`.
   # The version of the release this document belongs to. The release tool
   # writes it, on the line that carries its mark.
-  version: 0.1.0 # x-release-please-version
+  version: 0.2.0 # x-release-please-version
   license:
     name: MIT
     identifier: MIT
