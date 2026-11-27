@@ -147,9 +147,10 @@ git config core.hooksPath .githooks
 ```
 
 `make verify` runs every check CI runs, except code scanning, which runs on
-GitHub. It needs Go and Docker: the `go` command downloads the toolchain
-that `go.mod` names and builds the analysers at the versions pinned in the
-`Makefile`, and the other tools run from images pinned there too.
+GitHub, and the browser tests. It needs Go and Docker: the `go` command
+downloads the toolchain that `go.mod` names and builds the analysers at the
+versions pinned in the `Makefile`, and the other tools run from images
+pinned there too.
 `make test` runs the unit tests alone, `make integration` adds the tests
 that need a real PostgreSQL, which they start in a container, and
 `make lint` runs the compilation and the static analysers.
@@ -164,6 +165,13 @@ when an objective is missed. `make bench-smoke` runs it for a few seconds
 with wide thresholds, which is what CI and `make verify` do.
 `make bench-replica` measures the memory the copy of the links takes in
 `redirect`.
+
+`make e2e` runs the browser tests against the local stack, which it starts
+first: the whole path of the panel in Chromium, with axe on every page, and
+the demo entry in Firefox and WebKit too. It is the one command that needs
+Node, in the version `e2e/.node-version` names, and the first time it
+downloads the three browsers that Playwright pins. It leaves a screenshot
+of each page in `e2e/screenshots`.
 
 ## Licence
 

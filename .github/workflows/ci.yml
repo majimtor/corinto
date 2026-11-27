@@ -110,3 +110,31 @@ jobs:
       # A shared runner publishes no figure (ADR 0020).
       - name: Run the load scenario for a few seconds
         run: make bench-smoke
+
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: e2e/.node-version
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      # The whole path of the panel in Chromium, with axe on every page, and
+      # the demo entry in Firefox and WebKit, against the stack that the
+      # target starts. The flag installs what the browsers need of the
+      # runner.
+      - name: Run the browser tests against the local stack
+        run: make e2e PLAYWRIGHT_DEPS=--with-deps
+      # The pages as the run saw them, also when it failed.
+      - name: Keep the screenshots of the run
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: panel-screenshots
+          path: e2e/screenshots/
+          if-no-files-found: ignore
+          retention-days: 30
