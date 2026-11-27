@@ -77,6 +77,7 @@ const (
 	pageKeyForm    = "keyform.html"
 	pageKeyIssued  = "keyissued.html"
 	pageKeyRevoke  = "keyrevoke.html"
+	pageStatus     = "status.html"
 	pageNotFound   = "notfound.html"
 	pageFailed     = "failed.html"
 	pageRefused    = "refused.html"
@@ -87,7 +88,7 @@ const (
 
 var pages = []string{
 	pageEntry, pageLinks, pageLink, pageLinkForm, pageLinkDelete,
-	pageKeys, pageKeyForm, pageKeyIssued, pageKeyRevoke,
+	pageKeys, pageKeyForm, pageKeyIssued, pageKeyRevoke, pageStatus,
 	pageNotFound, pageFailed, pageRefused, pageLimited, pageBusy, pageInsecure,
 }
 
@@ -188,6 +189,7 @@ func (p *panel) handler() http.Handler {
 		mux.HandleFunc("GET "+door+"keys/new", p.inside(lang, p.newKeyPage(lang)))
 		mux.HandleFunc("GET "+door+"keys/{id}/revoke", p.inside(lang, p.revokeKeyPage(lang)))
 		mux.HandleFunc("POST "+door+"keys/{id}/revoke", p.changing(lang, p.revokeKey(lang)))
+		mux.HandleFunc("GET "+door+"status", p.inside(lang, p.statusPage(lang)))
 	}
 	// Every other path and every other method: there is no page there.
 	mux.HandleFunc("/", p.notFound)
@@ -362,9 +364,10 @@ type view struct {
 }
 
 // bar is where the bar of a page behind a session leads: the links of the
-// workspace, its keys, and where its session is closed.
+// workspace, its keys, what became of its events, and where its session is
+// closed.
 type bar struct {
-	Links, Keys, Leave string
+	Links, Keys, Status, Leave string
 }
 
 // viewOf returns what every page of a request is rendered with. The other
@@ -384,7 +387,7 @@ func (p *panel) viewOf(r *http.Request, lang language) view {
 	return view{
 		Lang: lang, Other: other, OtherPath: "/" + string(other) + rest,
 		OtherName: p.texts.plain(other, "language.name"), Stylesheet: p.stylesheetPath,
-		Home: door, Bar: bar{Links: door + "links", Keys: door + "keys", Leave: door + "logout"},
+		Home: door, Bar: bar{Links: door + "links", Keys: door + "keys", Status: door + "status", Leave: door + "logout"},
 	}
 }
 

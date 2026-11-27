@@ -137,22 +137,23 @@ func TestThePeriodOfAPageIsOneOfThree(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if days, ok := periodOf(query); days != c.days || ok != c.ok {
+		if days, ok := periodOf(query, periods, defaultPeriod); days != c.days || ok != c.ok {
 			t.Errorf("the period of %q = %d, %t; want %d, %t", c.query, days, ok, c.days, c.ok)
 		}
 	}
 	// The page of the default period has one address, and each of the
 	// others names its days.
-	if got := []string{periodQuery(7), periodQuery(30), periodQuery(90)}; !slices.Equal(got, []string{"?days=7", "", "?days=90"}) {
+	if got := []string{periodQuery(7, defaultPeriod), periodQuery(30, defaultPeriod), periodQuery(90, defaultPeriod)}; !slices.Equal(got, []string{"?days=7", "", "?days=90"}) {
 		t.Errorf("the addresses of the three periods carry %q", got)
 	}
 	// What the page writes for a period is what it reads as that period.
 	for _, days := range periods {
-		query, err := url.ParseQuery(periodQuery(days)[min(1, len(periodQuery(days))):])
+		written := periodQuery(days, defaultPeriod)
+		query, err := url.ParseQuery(written[min(1, len(written)):])
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, ok := periodOf(query); got != days || !ok {
+		if got, ok := periodOf(query, periods, defaultPeriod); got != days || !ok {
 			t.Errorf("the address the page writes for %d days is read as %d, %t", days, got, ok)
 		}
 	}

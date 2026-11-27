@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -330,6 +331,16 @@ func (s *stage) text(t *testing.T, lang language, key string, pairs ...any) stri
 	return escaped(found)
 }
 
+// The sentence of a page that says how far the events are processed: it
+// has the minute it was asked in, by the clock of the database.
+var throughSentence = regexp.MustCompile(`<p>[^<]*UTC\.</p>`)
+
+// settled returns a page without the sentences that say a moment, so that
+// two answers a minute apart can be compared.
+func settled(page string) string {
+	return throughSentence.ReplaceAllString(page, "")
+}
+
 // escaped returns a text as html/template writes it inside an element.
 func escaped(text string) string {
 	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&#34;", "'", "&#39;").Replace(text)
@@ -634,7 +645,7 @@ func TestThePageOfALinkCoversThePeriodItsAddressNames(t *testing.T) {
 
 	// The default period has one more address, the one that names it.
 	plain, named := s.get(t, workspace, "/en/links/"+target.ID), s.get(t, workspace, "/en/links/"+target.ID+"?days=30")
-	if named.Code != http.StatusOK || named.Body.String() != plain.Body.String() {
+	if named.Code != http.StatusOK || settled(named.Body.String()) != settled(plain.Body.String()) || settled(plain.Body.String()) == plain.Body.String() {
 		t.Errorf("the page asked for thirty days = %d, and it is not the page asked for no period", named.Code)
 	}
 	// Anything else is a page the panel does not have.

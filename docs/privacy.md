@@ -42,8 +42,8 @@ the event.
 ## What is stored
 
 Everything stored is in PostgreSQL. A job of `worker` deletes once a day
-what is due, and the ingestion status of the API says when it last
-finished.
+what is due, and the ingestion status of the API and the status page of
+the panel say when it last finished.
 
 | What | What it holds | Deleted |
 | --- | --- | --- |

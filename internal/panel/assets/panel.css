@@ -303,6 +303,13 @@ tbody th {
   font-weight: 400;
 }
 
+/* What the rows of a table add up to, set apart from them. */
+tfoot th,
+tfoot td {
+  border-top: 1px solid var(--edge);
+  font-weight: 600;
+}
+
 .count {
   font-variant-numeric: tabular-nums;
   text-align: right;

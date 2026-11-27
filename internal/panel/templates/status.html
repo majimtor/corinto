@@ -1,0 +1,48 @@
+{{define "title"}}{{t "status.page_title" "days" .Days}}{{end}}
+
+{{define "content" -}}
+<h1>{{t "status.title"}}</h1>
+{{if .Demo}}<p class="notice">{{t "status.synthetic"}}</p>{{end}}
+<p>{{t "status.intro"}}</p>
+
+<section aria-labelledby="period">
+<h2 id="period">{{t "link.period" "days" .Days "first" (date .First) "last" (date .Last)}}</h2>
+<nav class="periods" aria-label="{{t "period.label"}}">
+<ul>
+{{range .Periods -}}
+<li><a href="{{.Path}}"{{if .Current}} aria-current="page"{{end}}>{{plural "period.days" .Days}}</a></li>
+{{end -}}
+</ul>
+</nav>
+{{if .Total.Served -}}
+<p>{{t "status.summary" "days" .Days "served" (plural "count.served" .Total.Served) "accepted" (plural "count.accepted" .Total.Accepted) "lost" (plural "count.lost" .Total.Lost)}}</p>
+<p>{{if .Total.Lost}}{{t "status.something_lost"}}{{else}}{{t "status.nothing_lost"}}{{end}}</p>
+{{- else -}}
+<p>{{t "status.empty" "days" .Days}}</p>
+{{- end}}
+<div class="scroll" role="group" aria-labelledby="status-caption" tabindex="0">
+<table>
+<caption id="status-caption">{{t "status.caption"}}</caption>
+<thead>
+<tr><th scope="col">{{t "series.day"}}</th><th scope="col" class="count">{{t "status.served"}}</th><th scope="col" class="count">{{t "status.accepted"}}</th><th scope="col" class="count">{{t "status.lost"}}</th><th scope="col" class="count">{{t "status.processed"}}</th><th scope="col" class="count">{{t "status.pending"}}</th><th scope="col" class="count">{{t "status.dead_lettered"}}</th></tr>
+</thead>
+<tbody>
+{{range .Terms -}}
+<tr><th scope="row" class="day"><time datetime="{{isoday .Day}}">{{date .Day}}</time></th><td class="count">{{number .Served}}</td><td class="count">{{number .Accepted}}</td><td class="count">{{number .Lost}}</td><td class="count">{{number .Processed}}</td><td class="count">{{number .Pending}}</td><td class="count">{{number .DeadLettered}}</td></tr>
+{{end -}}
+</tbody>
+<tfoot>
+<tr><th scope="row">{{t "status.total"}}</th><td class="count">{{number .Total.Served}}</td><td class="count">{{number .Total.Accepted}}</td><td class="count">{{number .Total.Lost}}</td><td class="count">{{number .Total.Processed}}</td><td class="count">{{number .Total.Pending}}</td><td class="count">{{number .Total.DeadLettered}}</td></tr>
+</tfoot>
+</table>
+</div>
+<p class="definition">{{t "status.definition.lost"}}</p>
+<p class="definition">{{t "status.definition.accepted" "attempts" .Attempts}}</p>
+</section>
+
+<section aria-labelledby="service">
+<h2 id="service">{{t "status.service"}}</h2>
+<p>{{t "status.through" "moment" (moment .Through)}}</p>
+<p>{{with .Retention}}{{t "status.retention" "moment" (moment .)}}{{else}}{{t "status.retention_never"}}{{end}}</p>
+</section>
+{{- end}}

@@ -79,9 +79,8 @@ type linkView struct {
 	Devices, Browsers parts
 }
 
-// choice is one of the periods the page of a link can be asked for: how
-// many days it has, where the page of that period is, and whether it is
-// the one shown.
+// choice is one of the periods a page can be asked for: how many days it
+// has, where the page of that period is, and whether it is the one shown.
 type choice struct {
 	Days    int64
 	Path    string
@@ -127,15 +126,16 @@ type parts struct {
 	Top    part
 }
 
-// periodOf returns how many days the address of a page asks for: the
-// default when it names no period, and false when it names anything that
-// is not one of the periods, written as the page writes it.
-func periodOf(query url.Values) (int, bool) {
+// periodOf returns how many days the address of a page asks for, of the
+// periods the page offers: the one it shows unasked when the address names
+// no period, and false when it names anything that is not one of them,
+// written as the page writes it.
+func periodOf(query url.Values, offered []int, unasked int) (int, bool) {
 	asked, named := query[periodField]
 	if !named {
-		return defaultPeriod, true
+		return unasked, true
 	}
-	for _, days := range periods {
+	for _, days := range offered {
 		if len(asked) == 1 && asked[0] == strconv.Itoa(days) {
 			return days, true
 		}
@@ -144,13 +144,23 @@ func periodOf(query url.Values) (int, bool) {
 }
 
 // periodQuery returns what the address of a page carries for a period:
-// nothing for the default, so that the page of a link has one address when
-// it is asked for no period.
-func periodQuery(days int) string {
-	if days == defaultPeriod {
+// nothing for the one the page shows unasked, so that the page has one
+// address when it is asked for no period.
+func periodQuery(days, unasked int) string {
+	if days == unasked {
 		return ""
 	}
 	return "?" + url.Values{periodField: {strconv.Itoa(days)}}.Encode()
+}
+
+// choicesOf returns the periods a page offers, each at its address, with
+// the one that is shown marked.
+func choicesOf(page string, offered []int, unasked, shown int) []choice {
+	choices := make([]choice, len(offered))
+	for i, days := range offered {
+		choices[i] = choice{Days: int64(days), Path: page + periodQuery(days, unasked), Current: days == shown}
+	}
+	return choices
 }
 
 // linkPage serves the page of a link in one language, for whoever is in a
@@ -162,7 +172,7 @@ func (p *panel) linkPage(lang language) func(http.ResponseWriter, *http.Request,
 		principal := in.principal
 		// A period the page does not have is a page that does not exist,
 		// like a list of links that starts after something that is not one.
-		days, ok := periodOf(r.URL.Query())
+		days, ok := periodOf(r.URL.Query(), periods, defaultPeriod)
 		if !ok {
 			p.missing(w, r, lang)
 			return
@@ -203,11 +213,9 @@ func (p *panel) linkPage(lang language) func(http.ResponseWriter, *http.Request,
 			shown.Name = found.Identifier
 		}
 		page := "/" + string(lang) + "/links/" + found.ID
-		for _, offered := range periods {
-			shown.Periods = append(shown.Periods, choice{Days: int64(offered), Path: page + periodQuery(offered), Current: offered == days})
-		}
+		shown.Periods = choicesOf(page, periods, defaultPeriod, days)
 		// The page in the other language is of the same period.
-		shown.OtherPath += periodQuery(days)
+		shown.OtherPath += periodQuery(days, defaultPeriod)
 		shown.Edit, shown.Delete, shown.Switch = page+"/edit", page+"/delete", page+"/disable"
 		shown.Disabled, shown.Blocked = found.State == link.StateDisabled, found.State == link.StateBlocked
 		if shown.Disabled {
