@@ -153,9 +153,10 @@ func TestTheListOfKeysShowsTheKeysInForceAndOfNoOtherWorkspace(t *testing.T) {
 	}
 }
 
-// The bar of every page behind a session leads to the links and to the
-// keys of the workspace, whatever the page shows under those names.
-func TestTheBarLeadsToTheLinksAndToTheKeysFromEveryPage(t *testing.T) {
+// The bar of every page behind a session leads to the links of the
+// workspace, to its keys and to what became of its events, whatever the
+// page shows under those names.
+func TestTheBarLeadsToTheLinksTheKeysAndTheStatusFromEveryPage(t *testing.T) {
 	s := newStage(t)
 	shop, inside := s.shop(t, link.WorkspaceDraft{})
 	target := s.link(t, shop, link.Draft{})
@@ -164,14 +165,15 @@ func TestTheBarLeadsToTheLinksAndToTheKeysFromEveryPage(t *testing.T) {
 		door := "/" + string(lang)
 		for _, path := range []string{
 			"/links", "/links/new", "/links/" + target.ID, "/links/" + target.ID + "/edit", "/links/" + target.ID + "/delete",
-			"/keys", "/keys/new", "/keys/" + held.ID + "/revoke",
+			"/keys", "/keys/new", "/keys/" + held.ID + "/revoke", "/status",
 		} {
 			page := s.ask(t, http.MethodGet, door+path, with(inside)).Body.String()
 			want := `<a href="` + door + `/links">` + s.text(t, lang, "layout.links") + "</a>\n" +
 				`<a href="` + door + `/keys">` + s.text(t, lang, "layout.keys") + "</a>\n" +
+				`<a href="` + door + `/status">` + s.text(t, lang, "layout.status") + "</a>\n" +
 				`<form method="post" action="` + door + `/logout">`
 			if !strings.Contains(page, want) {
-				t.Errorf("the bar of %s does not lead to the links, to the keys and out: no %q in it", door+path, want)
+				t.Errorf("the bar of %s does not lead to the links, to the keys, to the status and out: no %q in it", door+path, want)
 			}
 		}
 		// The door is behind no session, and has no bar.

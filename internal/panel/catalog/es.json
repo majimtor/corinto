@@ -23,6 +23,7 @@
   "layout.session": "Sesión",
   "layout.links": "Enlaces",
   "layout.keys": "Claves",
+  "layout.status": "Estado",
   "layout.leave": "Salir",
   "entry.title": "Entrar en un espacio de demostración",
   "entry.intro": "Un espacio de demostración viene con enlaces y tráfico sintético. Para entrar no hace falta cuenta ni contraseña, y lo que hagas dentro se borra cuando los espacios se vuelven a crear.",
@@ -211,5 +212,39 @@
   "error.key.name.required": "Escribe un nombre para la clave.",
   "error.key.name.characters": "El nombre tiene como máximo 100 caracteres, todos imprimibles.",
   "error.key.scopes": "Elige al menos un ámbito de la lista.",
-  "error.key.quota": "Este espacio tiene todas las claves que puede tener. Revoca una para crear otra."
+  "error.key.quota": "Este espacio tiene todas las claves que puede tener. Revoca una para crear otra.",
+  "status.title": "Estado de la ingesta",
+  "status.page_title": "Estado de la ingesta: últimos {days} días",
+  "status.synthetic": "Este espacio es de demostración: sus eventos los generó la semilla. En el primero de sus espacios, la semilla aparta además un evento como ejemplo de letra muerta.",
+  "status.intro": "Cada respuesta a quien pide un enlace del espacio debe un evento. Esta página dice qué fue de ellos, por el día del acceso.",
+  "status.summary": "En estos {days} días: {served}, {accepted} y {lost}.",
+  "count.served": {
+    "one": "{n} respuesta servida",
+    "other": "{n} respuestas servidas"
+  },
+  "count.accepted": {
+    "one": "{n} evento aceptado",
+    "other": "{n} eventos aceptados"
+  },
+  "count.lost": {
+    "one": "{n} evento perdido",
+    "other": "{n} eventos perdidos"
+  },
+  "status.nothing_lost": "No se perdió ninguno: cada respuesta dejó su evento en la bandeja.",
+  "status.something_lost": "Se perdieron eventos: hubo respuestas cuyo evento no llegó a la bandeja.",
+  "status.empty": "En estos {days} días no se pidió ningún enlace del espacio.",
+  "status.caption": "Qué fue de los eventos de cada día",
+  "status.served": "Respuestas servidas",
+  "status.accepted": "Aceptados",
+  "status.lost": "Perdidos",
+  "status.processed": "Procesados",
+  "status.pending": "Pendientes",
+  "status.dead_lettered": "En letras muertas",
+  "status.total": "Total",
+  "status.definition.lost": "Los perdidos son las respuestas servidas menos los eventos aceptados: los que nunca llegaron a la bandeja.",
+  "status.definition.accepted": "Un evento aceptado está procesado, y ya cuenta en las cifras; pendiente, a la espera de su turno; o en letras muertas, apartado tras fallar {attempts} veces. Los tres suman siempre los aceptados.",
+  "status.service": "El servicio entero",
+  "status.through": "Los eventos de todos los espacios están procesados hasta el {moment}.",
+  "status.retention": "El borrado diario de lo que cumple su plazo terminó por última vez el {moment}.",
+  "status.retention_never": "El borrado diario de lo que cumple su plazo todavía no ha terminado ninguna vez."
 }
