@@ -30,6 +30,12 @@ services:
       file: compose.yaml
       service: api
     ports: !reset []
+    environment:
+      # The load generator reaches the panel by the name of this service,
+      # which is no loopback address: the session cookie of the local run
+      # would not be issued to it. A run takes the cookie of an
+      # installation behind HTTPS, and passes it on as its proxy would.
+      CORINTO_SESSION_COOKIE: secure
     depends_on:
       migrate:
         condition: service_completed_successfully

@@ -616,7 +616,12 @@ at 50 requests a second, with every threshold ten times as wide.
 objective. `make bench-replica` measures the memory of the replica
 (section 3): what the copy of the links holds, and the most the process
 holds while the whole copy is read again. It fails when the links of the
-objective do not fit.
+objective do not fit. `make bench-panel` measures the pages of the panel
+over the history of the seed, in the stack of the burst: the list of
+links, the page of a link at its three periods, the keys and the status at
+its two, asked for in turn at ten requests a second for a minute. What it
+times is the whole answer to a page, which holds its queries, and it fails
+when the 95th percentile of a page is over the objective.
 
 **Sizing probes.** The measurements taken while planning sized decisions
 and are not published figures. Each is in the context of the record it
